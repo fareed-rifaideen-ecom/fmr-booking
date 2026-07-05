@@ -99,12 +99,17 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-client-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-service.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-service-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-resource-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-rule-repository.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the admin area.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-booking-admin.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-client-controller.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-service-controller.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the public-facing
@@ -146,8 +151,13 @@ class FMR_Booking {
 		$client_repo   = new FMR_Client_Repository();
 		$branding_repo = new FMR_Branding_Repository();
 		$admin_client  = new FMR_Admin_Client_Controller( $client_repo, $branding_repo );
-
 		$this->loader->add_action( 'admin_menu', $admin_client, 'register_menus' );
+
+		// Service and Resource Admin Controller
+		$service_repo  = new FMR_Service_Repository();
+		$resource_repo = new FMR_Resource_Repository();
+		$admin_service = new FMR_Admin_Service_Controller( $service_repo, $resource_repo );
+		$this->loader->add_action( 'admin_menu', $admin_service, 'register_menus' );
 	}
 
 	/**
