@@ -94,9 +94,17 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Core/class-fmr-booking-i18n.php';
 
 		/**
+		 * Repositories and Services
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-client-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-service.php';
+
+		/**
 		 * The class responsible for defining all hooks that occur in the admin area.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-booking-admin.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-client-controller.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the public-facing
@@ -133,6 +141,13 @@ class FMR_Booking {
 
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_styles' );
 		$this->loader->add_action( 'admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts' );
+
+		// Client and Branding Admin Controller
+		$client_repo   = new FMR_Client_Repository();
+		$branding_repo = new FMR_Branding_Repository();
+		$admin_client  = new FMR_Admin_Client_Controller( $client_repo, $branding_repo );
+
+		$this->loader->add_action( 'admin_menu', $admin_client, 'register_menus' );
 	}
 
 	/**

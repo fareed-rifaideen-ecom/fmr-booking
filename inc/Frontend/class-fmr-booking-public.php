@@ -55,6 +55,29 @@ class FMR_Booking_Public {
 	 */
 	public function enqueue_styles() {
 		// wp_enqueue_style( $this->plugin_name, plugin_dir_url( dirname( __FILE__ ) ) . 'assets/css/fmr-booking-public.css', array(), $this->version, 'all' );
+		
+		// Output dynamic CSS variables
+		add_action( 'wp_head', array( $this, 'output_branding_css' ) );
+	}
+
+	/**
+	 * Output branding CSS variables in the head.
+	 */
+	public function output_branding_css() {
+		// For now, we use a default client ID or the first one found
+		// In a real scenario, this would be determined by the current page or shortcode attribute
+		$client_repo    = new FMR_Client_Repository();
+		$branding_repo  = new FMR_Branding_Repository();
+		$branding_service = new FMR_Branding_Service( $branding_repo );
+
+		// Get the first client for demo purposes
+		global $wpdb;
+		$client_id = $wpdb->get_var( "SELECT id FROM {$wpdb->prefix}fmr_client_profiles LIMIT 1" );
+
+		if ( $client_id ) {
+			$css = $branding_service->generate_css_variables( $client_id );
+			echo "<style id='fmr-booking-branding'>\n" . $css . "</style>\n";
+		}
 	}
 
 	/**
