@@ -103,6 +103,13 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-resource-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-rule-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-service.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-booking-service.php';
+
+		/**
+		 * Integrations
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Integrations/class-fmr-booking-rest-controller.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the admin area.
@@ -172,6 +179,18 @@ class FMR_Booking {
 
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_styles' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_scripts' );
+
+		// REST API Integration
+		$availability_repo = new FMR_Availability_Repository();
+		$service_repo      = new FMR_Service_Repository();
+		$resource_repo     = new FMR_Resource_Repository();
+		$rule_repo         = new FMR_Rule_Repository();
+		
+		$availability_service = new FMR_Availability_Service( $availability_repo, $service_repo, $resource_repo, $rule_repo );
+		$booking_service      = new FMR_Booking_Service( $availability_service, $service_repo, $rule_repo );
+		$rest_controller      = new FMR_Booking_REST_Controller( $availability_service, $booking_service );
+
+		$this->loader->add_action( 'rest_api_init', $rest_controller, 'register_routes' );
 	}
 
 	/**
