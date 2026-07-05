@@ -27,6 +27,10 @@ class FMR_Booking_Activator {
 	 * @since    1.0.0
 	 */
 	public static function activate() {
+		// Run database migrations
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Database/class-fmr-booking-migrations.php';
+		FMR_Booking_Migrations::run();
+
 		// Flush rewrite rules for custom post types if needed
 		flush_rewrite_rules();
 	}
