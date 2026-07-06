@@ -107,6 +107,9 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-booking-service.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-service.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-approval-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-log-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-approval-service.php';
 
 		/**
 		 * Cron
@@ -125,6 +128,7 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-client-controller.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-service-controller.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-reminder-controller.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-approval-controller.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the public-facing
@@ -178,6 +182,21 @@ class FMR_Booking {
 		$notification_repo = new FMR_Notification_Repository();
 		$admin_reminder    = new FMR_Admin_Reminder_Controller( $notification_repo );
 		$this->loader->add_action( 'admin_menu', $admin_reminder, 'register_menus' );
+
+		// Approval Admin Controller
+		$approval_repo    = new FMR_Approval_Repository();
+		$log_repo         = new FMR_Log_Repository();
+		$availability_repo = new FMR_Availability_Repository();
+		$service_repo      = new FMR_Service_Repository();
+		$resource_repo     = new FMR_Resource_Repository();
+		$rule_repo         = new FMR_Rule_Repository();
+		
+		$availability_service = new FMR_Availability_Service( $availability_repo, $service_repo, $resource_repo, $rule_repo );
+		$booking_service      = new FMR_Booking_Service( $availability_service, $service_repo, $rule_repo );
+		$approval_service     = new FMR_Approval_Service( $approval_repo, $booking_service, $log_repo );
+		$admin_approval       = new FMR_Admin_Approval_Controller( $approval_repo, $approval_service );
+		
+		$this->loader->add_action( 'admin_menu', $admin_approval, 'register_menus' );
 	}
 
 	/**
