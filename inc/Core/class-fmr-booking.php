@@ -105,6 +105,13 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-rule-repository.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-service.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-booking-service.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-repository.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-service.php';
+
+		/**
+		 * Cron
+		 */
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Cron/class-fmr-cron-service.php';
 
 		/**
 		 * Integrations
@@ -117,6 +124,7 @@ class FMR_Booking {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-booking-admin.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-client-controller.php';
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-service-controller.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-reminder-controller.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the public-facing
@@ -165,6 +173,11 @@ class FMR_Booking {
 		$resource_repo = new FMR_Resource_Repository();
 		$admin_service = new FMR_Admin_Service_Controller( $service_repo, $resource_repo );
 		$this->loader->add_action( 'admin_menu', $admin_service, 'register_menus' );
+
+		// Reminder Admin Controller
+		$notification_repo = new FMR_Notification_Repository();
+		$admin_reminder    = new FMR_Admin_Reminder_Controller( $notification_repo );
+		$this->loader->add_action( 'admin_menu', $admin_reminder, 'register_menus' );
 	}
 
 	/**
@@ -200,6 +213,24 @@ class FMR_Booking {
 	 */
 	public function run() {
 		$this->loader->run();
+		$this->register_cron_jobs();
+	}
+
+	/**
+	 * Register scheduled cron jobs.
+	 */
+	private function register_cron_jobs() {
+		$notification_repo    = new FMR_Notification_Repository();
+		$branding_repo        = new FMR_Branding_Repository();
+		$branding_service     = new FMR_Branding_Service( $branding_repo );
+		$notification_service = new FMR_Notification_Service( $notification_repo, $branding_service );
+		$cron_service         = new FMR_Cron_Service( $notification_repo, $notification_service );
+
+		if ( ! wp_next_scheduled( 'fmr_process_reminders' ) ) {
+			wp_schedule_event( time(), 'hourly', 'fmr_process_reminders' );
+		}
+
+		add_action( 'fmr_process_reminders', array( $cron_service, 'process_reminders' ) );
 	}
 
 	/**
