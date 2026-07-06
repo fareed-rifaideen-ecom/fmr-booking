@@ -120,6 +120,7 @@ class FMR_Booking {
 		 * Integrations
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Integrations/class-fmr-booking-rest-controller.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Integrations/class-fmr-woocommerce-adapter.php';
 
 		/**
 		 * The class responsible for defining all hooks that occur in the admin area.
@@ -228,8 +229,11 @@ class FMR_Booking {
 		$availability_service = new FMR_Availability_Service( $availability_repo, $service_repo, $resource_repo, $rule_repo );
 		$booking_service      = new FMR_Booking_Service( $availability_service, $service_repo, $rule_repo );
 		$rest_controller      = new FMR_Booking_REST_Controller( $availability_service, $booking_service );
-
 		$this->loader->add_action( 'rest_api_init', $rest_controller, 'register_routes' );
+
+		// WooCommerce Integration
+		$wc_adapter = new FMR_WooCommerce_Adapter( $booking_service );
+		$wc_adapter->init();
 	}
 
 	/**
