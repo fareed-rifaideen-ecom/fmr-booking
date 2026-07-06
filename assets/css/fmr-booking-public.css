@@ -1,0 +1,90 @@
+/**
+ * Frontend styles for FMR Booking Form.
+ * Uses CSS variables from branding presets.
+ */
+
+.fmr-booking-form-wrapper {
+    font-family: var(--fmr-font-family, sans-serif);
+    max-width: 600px;
+    margin: 20px auto;
+    padding: var(--fmr-spacing-unit, 20px);
+    border: 1px solid #eee;
+    border-radius: var(--fmr-button-radius, 8px);
+    background: #fff;
+}
+
+.fmr-booking-steps {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 30px;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+}
+
+.fmr-step {
+    font-size: 14px;
+    color: #ccc;
+    font-weight: bold;
+}
+
+.fmr-step.active {
+    color: var(--fmr-color-primary, #0073aa);
+}
+
+.fmr-form-step {
+    display: none;
+}
+
+.fmr-form-step.active {
+    display: block;
+}
+
+.fmr-field {
+    margin-bottom: 15px;
+}
+
+.fmr-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.fmr-field input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: var(--fmr-button-radius, 4px);
+}
+
+button.fmr-next-step, 
+button.fmr-submit-booking {
+    background-color: var(--fmr-color-primary, #0073aa);
+    color: #fff;
+    padding: var(--fmr-button-padding, 10px 20px);
+    border: none;
+    border-radius: var(--fmr-button-radius, 4px);
+    cursor: pointer;
+}
+
+button.fmr-prev-step {
+    background-color: #eee;
+    color: #333;
+    padding: var(--fmr-button-padding, 10px 20px);
+    border: none;
+    border-radius: var(--fmr-button-radius, 4px);
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Mobile Friendly */
+@media (max-width: 480px) {
+    .fmr-booking-steps {
+        flex-direction: column;
+        gap: 5px;
+    }
+}

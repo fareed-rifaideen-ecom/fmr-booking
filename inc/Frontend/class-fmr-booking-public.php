@@ -53,12 +53,12 @@ class FMR_Booking_Public {
 	 *
 	 * @since    1.0.0
 	 */
-	public function enqueue_styles() {
-		// wp_enqueue_style( $this->plugin_name, plugin_dir_url( dirname( __FILE__ ) ) . 'assets/css/fmr-booking-public.css', array(), $this->version, 'all' );
-		
-		// Output dynamic CSS variables
-		add_action( 'wp_head', array( $this, 'output_branding_css' ) );
-	}
+		public function enqueue_styles() {
+			wp_register_style( $this->plugin_name, plugin_dir_url( dirname( __FILE__ ) ) . 'assets/css/fmr-booking-public.css', array(), $this->version, 'all' );
+			
+			// Output dynamic CSS variables
+			add_action( 'wp_head', array( $this, 'output_branding_css' ) );
+		}
 
 	/**
 	 * Output branding CSS variables in the head.
@@ -85,8 +85,13 @@ class FMR_Booking_Public {
 	 *
 	 * @since    1.0.0
 	 */
-	public function enqueue_scripts() {
-		// wp_enqueue_script( $this->plugin_name, plugin_dir_url( dirname( __FILE__ ) ) . 'assets/js/fmr-booking-public.js', array( 'jquery' ), $this->version, false );
-	}
+		public function enqueue_scripts() {
+			wp_register_script( $this->plugin_name, plugin_dir_url( dirname( __FILE__ ) ) . 'assets/js/fmr-booking-public.js', array( 'jquery' ), $this->version, false );
+			
+			wp_localize_script( $this->plugin_name, 'wpApiSettings', array(
+				'root'  => esc_url_raw( rest_url() ),
+				'nonce' => wp_create_nonce( 'wp_rest' ),
+			) );
+		}
 
 }

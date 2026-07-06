@@ -135,6 +135,7 @@ class FMR_Booking {
 		 * side of the site.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Frontend/class-fmr-booking-public.php';
+		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Frontend/class-fmr-booking-shortcode.php';
 
 		$this->loader = new FMR_Booking_Loader();
 	}
@@ -211,6 +212,12 @@ class FMR_Booking {
 
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_styles' );
 		$this->loader->add_action( 'wp_enqueue_scripts', $plugin_public, 'enqueue_scripts' );
+
+		// Shortcode
+		$service_repo = new FMR_Service_Repository();
+		$client_repo  = new FMR_Client_Repository();
+		$shortcode    = new FMR_Booking_Shortcode( $service_repo, $client_repo );
+		$this->loader->add_action( 'init', $shortcode, 'register' );
 
 		// REST API Integration
 		$availability_repo = new FMR_Availability_Repository();
