@@ -60,9 +60,20 @@ class FMR_Booking {
 		$this->plugin_name = 'fmr-booking';
 
 		$this->init_loader();
+	}
+
+	/**
+	 * Run the loader to execute all of the hooks with WordPress.
+	 *
+	 * @since    1.0.0
+	 */
+	public function run() {
 		$this->set_locale();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
+		$this->register_cron_hooks();
+
+		$this->loader->run();
 	}
 
 	/**
@@ -168,16 +179,6 @@ class FMR_Booking {
 		// WooCommerce Integration
 		$wc_adapter = new FMR_WooCommerce_Adapter( $booking_service );
 		$wc_adapter->init();
-	}
-
-	/**
-	 * Run the loader to execute all of the hooks with WordPress.
-	 *
-	 * @since    1.0.0
-	 */
-	public function run() {
-		$this->loader->run();
-		$this->register_cron_hooks();
 	}
 
 	/**

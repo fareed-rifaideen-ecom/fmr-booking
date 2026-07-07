@@ -43,11 +43,17 @@ class FMR_Booking_Migrations {
 	 * @since    1.0.0
 	 * @access   private
 	 */
-	private static function execute_schema_update() {
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		require_once plugin_dir_path( __FILE__ ) . 'class-fmr-booking-schema.php';
+		private static function execute_schema_update() {
+			/**
+			 * Load the WordPress database upgrade functions.
+			 */
+			if ( ! function_exists( 'dbDelta' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+			}
+			
+			require_once plugin_dir_path( __FILE__ ) . 'class-fmr-booking-schema.php';
 
-		$queries = FMR_Booking_Schema::get_schema();
+			$queries = FMR_Booking_Schema::get_schema();
 
 		foreach ( $queries as $sql ) {
 			dbDelta( $sql );
