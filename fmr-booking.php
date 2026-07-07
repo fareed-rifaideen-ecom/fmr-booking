@@ -23,10 +23,10 @@ if ( ! defined( 'WPINC' ) ) {
 define( 'FMR_BOOKING_VERSION', '1.0.0' );
 
 /**
- * The core plugin class that is used to define internationalization,
- * admin-specific hooks, and public-facing site hooks.
+ * The plugin autoloader.
  */
-require plugin_dir_path( __FILE__ ) . 'inc/Core/class-fmr-booking.php';
+require_once plugin_dir_path( __FILE__ ) . 'inc/Core/class-fmr-booking-autoloader.php';
+FMR_Booking_Autoloader::register();
 
 /**
  * Begins execution of the plugin.

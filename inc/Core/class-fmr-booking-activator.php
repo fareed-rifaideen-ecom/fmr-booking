@@ -31,7 +31,12 @@ class FMR_Booking_Activator {
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Database/class-fmr-booking-migrations.php';
 		FMR_Booking_Migrations::run();
 
-		// Flush rewrite rules for custom post types if needed
+		// Schedule cron events
+		if ( ! wp_next_scheduled( 'fmr_process_reminders' ) ) {
+			wp_schedule_event( time(), 'hourly', 'fmr_process_reminders' );
+		}
+
+		// Flush rewrite rules
 		flush_rewrite_rules();
 	}
 

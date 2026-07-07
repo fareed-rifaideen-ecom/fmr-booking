@@ -59,85 +59,19 @@ class FMR_Booking {
 		}
 		$this->plugin_name = 'fmr-booking';
 
-		$this->load_dependencies();
+		$this->init_loader();
 		$this->set_locale();
 		$this->define_admin_hooks();
 		$this->define_public_hooks();
 	}
 
 	/**
-	 * Load the required dependencies for this plugin.
-	 *
-	 * Include the following files that make up the plugin:
-	 *
-	 * - FMR_Booking_Loader. Orchestrates the hooks of the plugin.
-	 * - FMR_Booking_i18n. Defines internationalization functionality.
-	 * - FMR_Booking_Admin. Defines all hooks for the admin area.
-	 * - FMR_Booking_Public. Defines all hooks for the public side of the site.
-	 *
-	 * Create an instance of the loader which will be used to register the hooks
-	 * with WordPress.
+	 * Initialize the loader.
 	 *
 	 * @since    1.0.0
 	 * @access   private
 	 */
-	private function load_dependencies() {
-		/**
-		 * The class responsible for orchestrating the hooks with the core plugin.
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Core/class-fmr-booking-loader.php';
-
-		/**
-		 * The class responsible for defining internationalization functionality
-		 * of the plugin.
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Core/class-fmr-booking-i18n.php';
-
-		/**
-		 * Repositories and Services
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-client-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-branding-service.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-service-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-resource-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-rule-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-availability-service.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-booking-service.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-notification-service.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-approval-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-log-repository.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Application/class-fmr-approval-service.php';
-
-		/**
-		 * Cron
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Cron/class-fmr-cron-service.php';
-
-		/**
-		 * Integrations
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Integrations/class-fmr-booking-rest-controller.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Integrations/class-fmr-woocommerce-adapter.php';
-
-		/**
-		 * The class responsible for defining all hooks that occur in the admin area.
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-booking-admin.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-client-controller.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-service-controller.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-reminder-controller.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Admin/class-fmr-admin-approval-controller.php';
-
-		/**
-		 * The class responsible for defining all hooks that occur in the public-facing
-		 * side of the site.
-		 */
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Frontend/class-fmr-booking-public.php';
-		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'Frontend/class-fmr-booking-shortcode.php';
-
+	private function init_loader() {
 		$this->loader = new FMR_Booking_Loader();
 	}
 
@@ -243,24 +177,21 @@ class FMR_Booking {
 	 */
 	public function run() {
 		$this->loader->run();
-		$this->register_cron_jobs();
+		$this->register_cron_hooks();
 	}
 
 	/**
-	 * Register scheduled cron jobs.
+	 * Register cron hooks (execution only, not scheduling).
 	 */
-	private function register_cron_jobs() {
-		$notification_repo    = new FMR_Notification_Repository();
-		$branding_repo        = new FMR_Branding_Repository();
-		$branding_service     = new FMR_Branding_Service( $branding_repo );
-		$notification_service = new FMR_Notification_Service( $notification_repo, $branding_service );
-		$cron_service         = new FMR_Cron_Service( $notification_repo, $notification_service );
-
-		if ( ! wp_next_scheduled( 'fmr_process_reminders' ) ) {
-			wp_schedule_event( time(), 'hourly', 'fmr_process_reminders' );
-		}
-
-		add_action( 'fmr_process_reminders', array( $cron_service, 'process_reminders' ) );
+	private function register_cron_hooks() {
+		add_action( 'fmr_process_reminders', function() {
+			$notification_repo    = new FMR_Notification_Repository();
+			$branding_repo        = new FMR_Branding_Repository();
+			$branding_service     = new FMR_Branding_Service( $branding_repo );
+			$notification_service = new FMR_Notification_Service( $notification_repo, $branding_service );
+			$cron_service         = new FMR_Cron_Service( $notification_repo, $notification_service );
+			$cron_service->process_reminders();
+		} );
 	}
 
 	/**
