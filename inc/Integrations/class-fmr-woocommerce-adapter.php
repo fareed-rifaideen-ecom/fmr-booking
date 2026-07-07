@@ -52,20 +52,52 @@ class FMR_WooCommerce_Adapter {
 	 */
 	public function handle_payment_complete( $order_id ) {
 		$order = wc_get_order( $order_id );
-		
+		if ( ! $order ) {
+			return;
+		}
+
+		// Prevent duplicate processing
+		if ( $order->get_meta( '_fmr_payment_processed' ) ) {
+			return;
+		}
+
+		global $wpdb;
+		$processed = false;
+
 		foreach ( $order->get_items() as $item ) {
-			$appointment_id = $item->get_meta( '_fmr_appointment_id' );
-			if ( $appointment_id ) {
-				$this->booking_service->update_status( $appointment_id, 'approved' );
-				
-				// Log the payment confirmation
-				global $wpdb;
+			$appointment_id = (int) $item->get_meta( '_fmr_appointment_id' );
+			if ( ! $appointment_id ) {
+				continue;
+			}
+
+			// Validate appointment exists and check current status
+			$appointment = $wpdb->get_row( $wpdb->prepare(
+				"SELECT status, wc_order_id FROM {$wpdb->prefix}fmr_appointments WHERE id = %d",
+				$appointment_id
+			) );
+
+			if ( ! $appointment || $appointment->status === FMR_Status::APPROVED ) {
+				continue;
+			}
+
+			// Update status through service layer
+			$updated = $this->booking_service->update_status( $appointment_id, FMR_Status::APPROVED );
+			
+			if ( $updated ) {
 				$wpdb->update(
 					$wpdb->prefix . 'fmr_appointments',
 					array( 'wc_order_id' => $order_id ),
-					array( 'id' => $appointment_id )
+					array( 'id' => $appointment_id ),
+					array( '%d' ),
+					array( '%d' )
 				);
+				$processed = true;
 			}
+		}
+
+		if ( $processed ) {
+			$order->update_meta_data( '_fmr_payment_processed', '1' );
+			$order->save();
 		}
 	}
 

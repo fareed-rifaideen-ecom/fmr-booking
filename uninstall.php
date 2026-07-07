@@ -26,9 +26,9 @@ delete_option( 'fmr_booking_default_product_id' );
 // Clear scheduled tasks
 wp_clear_scheduled_hook( 'fmr_process_reminders' );
 
-// Drop custom tables
+// Drop custom tables with hardening
 global $wpdb;
-$tables = array(
+$allowed_tables = array(
 	'fmr_client_profiles',
 	'fmr_branding_presets',
 	'fmr_services',
@@ -44,6 +44,12 @@ $tables = array(
 	'fmr_attachments',
 );
 
-foreach ( $tables as $table ) {
-	$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}{$table}" );
+foreach ( $allowed_tables as $table ) {
+	// Securely construct the table name
+	$table_name = $wpdb->prefix . $table;
+	
+	// Final validation before execution
+	if ( preg_match( '/^[a-zA-Z0-9_]+$/', $table_name ) ) {
+		$wpdb->query( "DROP TABLE IF EXISTS $table_name" );
+	}
 }
