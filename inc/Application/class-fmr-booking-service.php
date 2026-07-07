@@ -44,13 +44,26 @@ class FMR_Booking_Service {
 	public function create_booking( $data ) {
 		global $wpdb;
 
-		$service = $this->service_repo->get( $data['service_id'] );
-		if ( ! $service ) {
-			return new WP_Error( 'invalid_service', __( 'Invalid service selected.', 'fmr-booking' ) );
+		// Validation
+		$service_id = isset( $data['service_id'] ) ? (int) $data['service_id'] : 0;
+		$start_time = isset( $data['start_time'] ) ? sanitize_text_field( $data['start_time'] ) : '';
+
+		if ( ! $service_id ) {
+			return new WP_Error( 'invalid_service', __( 'Invalid service ID.', 'fmr-booking' ) );
 		}
 
-		$start_time = $data['start_time'];
-		$end_time   = date( 'Y-m-d H:i:s', strtotime( $start_time ) + ( $service->duration * 60 ) );
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $start_time ) ) {
+			return new WP_Error( 'invalid_date', __( 'Invalid start time format. Use YYYY-MM-DD HH:MM:SS.', 'fmr-booking' ) );
+		}
+
+		$service = $this->service_repo->get( $service_id );
+		if ( ! $service ) {
+			return new WP_Error( 'invalid_service', __( 'Service not found.', 'fmr-booking' ) );
+		}
+
+		// Standardize time handling using WordPress-aware timestamping
+		$start_timestamp = strtotime( $start_time );
+		$end_time = date( 'Y-m-d H:i:s', $start_timestamp + ( $service->duration * 60 ) );
 
 		$required_resource_ids = $this->rule_repo->get_required_resources( $service->id );
 		if ( ! $this->availability_service->is_slot_available( $required_resource_ids, $start_time, $end_time ) ) {
@@ -59,39 +72,46 @@ class FMR_Booking_Service {
 
 		$wpdb->query( 'START TRANSACTION' );
 
-		$appointment_id = $wpdb->insert(
+		$inserted = $wpdb->insert(
 			$wpdb->prefix . 'fmr_appointments',
 			array(
 				'client_id'      => $service->client_id,
 				'service_id'     => $service->id,
-				'customer_name'  => sanitize_text_field( $data['customer_name'] ),
-				'customer_email' => sanitize_email( $data['customer_email'] ),
-				'customer_phone' => sanitize_text_field( $data['customer_phone'] ),
+				'customer_name'  => sanitize_text_field( $data['customer_name'] ?? '' ),
+				'customer_email' => sanitize_email( $data['customer_email'] ?? '' ),
+				'customer_phone' => sanitize_text_field( $data['customer_phone'] ?? '' ),
 				'start_time'     => $start_time,
 				'end_time'       => $end_time,
 				'status'         => 'pending',
-				'notes'          => sanitize_textarea_field( $data['notes'] ),
-			)
+				'notes'          => sanitize_textarea_field( $data['notes'] ?? '' ),
+			),
+			array( '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
-		if ( ! $appointment_id ) {
+		if ( false === $inserted ) {
 			$wpdb->query( 'ROLLBACK' );
 			return new WP_Error( 'db_error', __( 'Failed to create appointment.', 'fmr-booking' ) );
 		}
 
-		$appointment_id = $wpdb->insert_id;
+		$appointment_id = (int) $wpdb->insert_id;
 
-		// Create resource reservations
+		// Create resource reservations with strict error handling
 		foreach ( $required_resource_ids as $resource_id ) {
-			$wpdb->insert(
+			$res_inserted = $wpdb->insert(
 				$wpdb->prefix . 'fmr_resource_reservations',
 				array(
 					'appointment_id' => $appointment_id,
-					'resource_id'    => $resource_id,
+					'resource_id'    => (int) $resource_id,
 					'start_time'     => $start_time,
 					'end_time'       => $end_time,
-				)
+				),
+				array( '%d', '%d', '%s', '%s' )
 			);
+
+			if ( false === $res_inserted ) {
+				$wpdb->query( 'ROLLBACK' );
+				return new WP_Error( 'db_error', __( 'Failed to create resource reservation.', 'fmr-booking' ) );
+			}
 		}
 
 		$wpdb->query( 'COMMIT' );
@@ -108,11 +128,20 @@ class FMR_Booking_Service {
 	 */
 	public function update_status( $appointment_id, $new_status ) {
 		global $wpdb;
+
+		$allowed_statuses = array( 'pending', 'approved', 'cancelled', 'completed', 'rescheduled' );
+		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
+			return false;
+		}
+
 		$result = $wpdb->update(
 			$wpdb->prefix . 'fmr_appointments',
 			array( 'status' => $new_status ),
-			array( 'id' => $appointment_id )
+			array( 'id' => (int) $appointment_id ),
+			array( '%s' ),
+			array( '%d' )
 		);
+		
 		return $result !== false;
 	}
 }
