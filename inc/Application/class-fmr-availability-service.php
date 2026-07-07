@@ -52,10 +52,10 @@ class FMR_Availability_Service {
 		$required_resource_ids = $this->rule_repo->get_required_resources( $service_id );
 		if ( empty( $required_resource_ids ) ) return array();
 
-		// For simplicity, assume business hours 09:00 - 17:00
-		$start_hour = 9;
-		$end_hour   = 17;
-		$duration   = $service->duration + $service->buffer_before + $service->buffer_after;
+		// Get schedule policy from options (or default if not set)
+		$start_hour = (int) get_option( 'fmr_booking_start_hour', 9 );
+		$end_hour   = (int) get_option( 'fmr_booking_end_hour', 17 );
+		$interval   = (int) get_option( 'fmr_booking_slot_interval', 30 );
 		
 		$slots = array();
 		$current_time = strtotime( "$date $start_hour:00:00" );
@@ -65,15 +65,14 @@ class FMR_Availability_Service {
 			$slot_start = date( 'Y-m-d H:i:s', $current_time );
 			$slot_end   = date( 'Y-m-d H:i:s', $current_time + ( $service->duration * 60 ) );
 			
-			if ( $this->is_slot_available( $required_resource_ids, $slot_start, $slot_end ) ) {
+			if ( $this->is_slot_available( $service_id, $required_resource_ids, $slot_start, $slot_end ) ) {
 				$slots[] = array(
 					'start' => $slot_start,
 					'end'   => $slot_end
 				);
 			}
 			
-			// Move to next slot (interval could be duration or fixed like 30 mins)
-			$current_time += 30 * 60; 
+			$current_time += $interval * 60; 
 		}
 
 		return $slots;
@@ -82,12 +81,14 @@ class FMR_Availability_Service {
 	/**
 	 * Check if all required resources are available for a specific time slot.
 	 *
+	 * @param int    $service_id   Service ID.
 	 * @param array  $resource_ids List of resource IDs.
 	 * @param string $start_time   Start time (Y-m-d H:i:s).
 	 * @param string $end_time     End time (Y-m-d H:i:s).
 	 * @return bool True if all resources are available.
 	 */
-	public function is_slot_available( $resource_ids, $start_time, $end_time ) {
+	public function is_slot_available( $service_id, $resource_ids, $start_time, $end_time ) {
+		// 1. Check Resource Capacity
 		foreach ( $resource_ids as $resource_id ) {
 			$resource = $this->resource_repo->get( $resource_id );
 			if ( ! $resource || ! $resource->is_active ) return false;
@@ -97,6 +98,15 @@ class FMR_Availability_Service {
 				return false;
 			}
 		}
+
+		// 2. Check Slot Locks
+		$active_locks = $this->availability_repo->get_active_locks( $service_id, $start_time );
+		if ( ! empty( $active_locks ) ) {
+			// For simplicity, if there's any active lock, consider it unavailable
+			// In advanced scenarios, we'd compare against remaining capacity
+			return false;
+		}
+
 		return true;
 	}
 }

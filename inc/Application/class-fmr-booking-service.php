@@ -66,7 +66,7 @@ class FMR_Booking_Service {
 		$end_time = date( 'Y-m-d H:i:s', $start_timestamp + ( $service->duration * 60 ) );
 
 		$required_resource_ids = $this->rule_repo->get_required_resources( $service->id );
-		if ( ! $this->availability_service->is_slot_available( $required_resource_ids, $start_time, $end_time ) ) {
+		if ( ! $this->availability_service->is_slot_available( $service->id, $required_resource_ids, $start_time, $end_time ) ) {
 			return new WP_Error( 'slot_unavailable', __( 'The selected slot is no longer available.', 'fmr-booking' ) );
 		}
 

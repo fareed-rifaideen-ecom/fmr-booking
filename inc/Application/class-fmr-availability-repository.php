@@ -99,4 +99,22 @@ class FMR_Availability_Repository {
 		global $wpdb;
 		return $wpdb->query( $wpdb->prepare( "DELETE FROM {$this->locks_table} WHERE expires_at < %s", current_time( 'mysql' ) ) );
 	}
+
+	/**
+	 * Get active locks for a service and time.
+	 *
+	 * @param int    $service_id Service ID.
+	 * @param string $start_time  Start time.
+	 * @return array Active locks.
+	 */
+	public function get_active_locks( $service_id, $start_time ) {
+		global $wpdb;
+		$this->cleanup_locks();
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->locks_table} WHERE service_id = %d AND start_time = %s AND expires_at >= %s",
+			$service_id,
+			$start_time,
+			current_time( 'mysql' )
+		) );
+	}
 }
