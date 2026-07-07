@@ -33,27 +33,47 @@ class FMR_Booking_REST_Controller extends WP_REST_Controller {
 	/**
 	 * Register the routes.
 	 */
-	public function register_routes() {
-		register_rest_route( $this->namespace, '/slots', array(
-			array(
-				'methods'             => WP_REST_Server::READABLE,
-				'callback'            => array( $this, 'get_slots' ),
-				'permission_callback' => '__return_true',
-				'args'                => array(
-					'service_id' => array( 'required' => true, 'validate_callback' => 'is_numeric' ),
-					'date'       => array( 'required' => true ),
+		public function register_routes() {
+			register_rest_route( $this->namespace, '/slots', array(
+				array(
+					'methods'             => WP_REST_Server::READABLE,
+					'callback'            => array( $this, 'get_slots' ),
+					'permission_callback' => '__return_true',
+					'args'                => array(
+						'service_id' => array(
+							'required'          => true,
+							'validate_callback' => function( $param ) {
+								return is_numeric( $param );
+							},
+							'sanitize_callback' => 'absint',
+						),
+						'date'       => array(
+							'required'          => true,
+							'validate_callback' => function( $param ) {
+								return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $param );
+							},
+							'sanitize_callback' => 'sanitize_text_field',
+						),
+					),
 				),
-			),
-		) );
+			) );
 
-		register_rest_route( $this->namespace, '/book', array(
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( $this, 'create_booking' ),
-				'permission_callback' => array( $this, 'check_nonce' ),
-			),
-		) );
-	}
+			register_rest_route( $this->namespace, '/book', array(
+				array(
+					'methods'             => WP_REST_Server::CREATABLE,
+					'callback'            => array( $this, 'create_booking' ),
+					'permission_callback' => array( $this, 'check_nonce' ),
+					'args'                => array(
+						'service_id'     => array( 'required' => true, 'sanitize_callback' => 'absint' ),
+						'start_time'     => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+						'customer_name'  => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+						'customer_email' => array( 'required' => true, 'sanitize_callback' => 'sanitize_email' ),
+						'customer_phone' => array( 'sanitize_callback' => 'sanitize_text_field' ),
+						'notes'          => array( 'sanitize_callback' => 'sanitize_textarea_field' ),
+					),
+				),
+			) );
+		}
 
 	/**
 	 * Get available slots.

@@ -129,8 +129,7 @@ class FMR_Booking_Service {
 	public function update_status( $appointment_id, $new_status ) {
 		global $wpdb;
 
-		$allowed_statuses = array( 'pending', 'approved', 'cancelled', 'completed', 'rescheduled' );
-		if ( ! in_array( $new_status, $allowed_statuses, true ) ) {
+		if ( ! FMR_Status::is_valid( $new_status ) ) {
 			return false;
 		}
 
