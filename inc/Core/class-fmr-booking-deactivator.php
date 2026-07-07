@@ -27,7 +27,11 @@ class FMR_Booking_Deactivator {
 	 * @since    1.0.0
 	 */
 	public static function deactivate() {
-		// Clear scheduled events or other cleanup
+		// Clear scheduled cron events
+		wp_clear_scheduled_hook( 'fmr_process_reminders' );
+		
+		// Flush rewrite rules
+		flush_rewrite_rules();
 	}
 
 }
