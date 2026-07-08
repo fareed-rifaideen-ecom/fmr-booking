@@ -5,7 +5,8 @@ if ( ! defined( 'WPINC' ) ) {
 
 class FMR_Booking_REST_Controller extends WP_REST_Controller {
 
-	private $namespace = 'fmr-booking/v1';
+	// 🚨 FIX: Changed from 'private' to 'protected' to comply with WP_REST_Controller
+	protected $namespace = 'fmr-booking/v1';
 	private $availability_service;
 	private $booking_service;
 
