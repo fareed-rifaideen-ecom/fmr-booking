@@ -29,14 +29,6 @@ require_once plugin_dir_path( __FILE__ ) . 'inc/Core/class-fmr-booking-autoloade
 FMR_Booking_Autoloader::register();
 
 /**
- * Begins execution of the plugin.
- */
-function run_fmr_booking() {
-	$plugin = new FMR_Booking();
-	$plugin->run();
-}
-
-/**
  * The code that runs during plugin activation.
  */
 register_activation_hook( __FILE__, 'activate_fmr_booking' );
@@ -52,6 +44,14 @@ register_deactivation_hook( __FILE__, 'deactivate_fmr_booking' );
 function deactivate_fmr_booking() {
 	require_once plugin_dir_path( __FILE__ ) . 'inc/Core/class-fmr-booking-deactivator.php';
 	FMR_Booking_Deactivator::deactivate();
+}
+
+/**
+ * Begins execution of the plugin.
+ */
+function run_fmr_booking() {
+	$plugin = new FMR_Booking();
+	$plugin->run();
 }
 
 run_fmr_booking();

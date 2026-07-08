@@ -53,16 +53,17 @@ class FMR_Booking_Autoloader {
 		$filename = 'class-' . strtolower( str_replace( '_', '-', $class ) ) . '.php';
 		$base_dir = plugin_dir_path( __FILE__ ) . '../';
 		
-		$subdirs = array(
-			'Core',
-			'Application',
-			'Database',
-			'Admin',
-			'Frontend',
-			'Integrations',
-			'Cron',
-			'Support'
-		);
+			$subdirs = array(
+				'Core',
+				'Application',
+				'Database',
+				'Admin',
+				'Frontend',
+				'Integrations',
+				'Cron',
+				'Support',
+				'Common'
+			);
 
 		foreach ( $subdirs as $subdir ) {
 			$path = $base_dir . $subdir . '/' . $filename;
