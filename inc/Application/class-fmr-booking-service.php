@@ -12,13 +12,6 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-/**
- * Service for handling booking creation and lifecycle.
- *
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Application
- * @author     FMR
- */
 class FMR_Booking_Service {
 
 	private $availability_service;
@@ -39,12 +32,12 @@ class FMR_Booking_Service {
 	 * Create a new booking.
 	 *
 	 * @param array $data Booking data.
-	 * @return int|WP_Error Appointment ID or error.
+	 * @return string|WP_Error Appointment UUID on success, or error on failure.
 	 */
 	public function create_booking( $data ) {
 		global $wpdb;
 
-		// Validation
+		// 1. Basic Validation
 		$service_id = isset( $data['service_id'] ) ? (int) $data['service_id'] : 0;
 		$start_time = isset( $data['start_time'] ) ? sanitize_text_field( $data['start_time'] ) : '';
 
@@ -57,35 +50,56 @@ class FMR_Booking_Service {
 		}
 
 		$service = $this->service_repo->get( $service_id );
-		if ( ! $service ) {
-			return new WP_Error( 'invalid_service', __( 'Service not found.', 'fmr-booking' ) );
+		if ( ! $service || ! $service->is_active ) {
+			return new WP_Error( 'invalid_service', __( 'Service is not active or not found.', 'fmr-booking' ) );
 		}
 
-		// Standardize time handling using WordPress-aware timestamping
 		$start_timestamp = strtotime( $start_time );
-		$end_time = date( 'Y-m-d H:i:s', $start_timestamp + ( $service->duration * 60 ) );
+		$end_time        = date( 'Y-m-d H:i:s', $start_timestamp + ( $service->duration * 60 ) );
+		$booking_date    = date( 'Y-m-d', $start_timestamp );
 
-		$required_resource_ids = $this->rule_repo->get_required_resources( $service->id );
-		if ( ! $this->availability_service->is_slot_available( $service->id, $required_resource_ids, $start_time, $end_time ) ) {
-			return new WP_Error( 'slot_unavailable', __( 'The selected slot is no longer available.', 'fmr-booking' ) );
+		// 2. Strict Slot Validation via the Rules Engine
+		// We fetch the day's slots to ensure this exact time obeys all blockouts, locks, and capacities.
+		$available_slots = $this->availability_service->get_available_slots( $service->id, $booking_date );
+		$is_valid_slot   = false;
+		
+		foreach ( $available_slots as $slot ) {
+			if ( $slot['start'] === $start_time ) {
+				$is_valid_slot = true;
+				break;
+			}
 		}
 
+		if ( ! $is_valid_slot ) {
+			return new WP_Error( 'slot_unavailable', __( 'The selected slot is outside operating hours, blocked, or no longer available.', 'fmr-booking' ) );
+		}
+
+		// 3. Generate Secure Identifiers (Crucial for Schema & Security)
+		$uuid         = wp_generate_uuid4();
+		$secure_token = wp_generate_password( 40, false ); // Used for guest auth (cancel/reschedule links)
+		$booking_mode = isset( $data['booking_mode'] ) && in_array( $data['booking_mode'], array( 'in_person', 'virtual' ) ) ? $data['booking_mode'] : 'in_person';
+		
+		// 4. Begin Database Transaction
 		$wpdb->query( 'START TRANSACTION' );
 
 		$inserted = $wpdb->insert(
 			$wpdb->prefix . 'fmr_appointments',
 			array(
-				'client_id'      => $service->client_id,
-				'service_id'     => $service->id,
-				'customer_name'  => sanitize_text_field( $data['customer_name'] ?? '' ),
-				'customer_email' => sanitize_email( $data['customer_email'] ?? '' ),
-				'customer_phone' => sanitize_text_field( $data['customer_phone'] ?? '' ),
-				'start_time'     => $start_time,
-				'end_time'       => $end_time,
-				'status'         => 'pending',
-				'notes'          => sanitize_textarea_field( $data['notes'] ?? '' ),
+				'uuid'                => $uuid,
+				'secure_token'        => $secure_token,
+				'client_id'           => $service->client_id,
+				'service_id'          => $service->id,
+				'customer_name'       => sanitize_text_field( $data['customer_name'] ?? '' ),
+				'customer_email'      => sanitize_email( $data['customer_email'] ?? '' ),
+				'customer_phone'      => sanitize_text_field( $data['customer_phone'] ?? '' ),
+				'booking_mode'        => $booking_mode,
+				'start_time'          => $start_time,
+				'end_time'            => $end_time,
+				'status'              => 'pending',
+				'notes'               => sanitize_textarea_field( $data['notes'] ?? '' ),
+				'intake_answers_json' => isset( $data['intake_answers'] ) ? wp_json_encode( $data['intake_answers'] ) : null,
 			),
-			array( '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		if ( false === $inserted ) {
@@ -95,7 +109,9 @@ class FMR_Booking_Service {
 
 		$appointment_id = (int) $wpdb->insert_id;
 
-		// Create resource reservations with strict error handling
+		// 5. Create Resource Reservations (Locking in the staff/rooms)
+		$required_resource_ids = $this->rule_repo->get_required_resources( $service->id );
+		
 		foreach ( $required_resource_ids as $resource_id ) {
 			$res_inserted = $wpdb->insert(
 				$wpdb->prefix . 'fmr_resource_reservations',
@@ -116,16 +132,10 @@ class FMR_Booking_Service {
 
 		$wpdb->query( 'COMMIT' );
 
-		return $appointment_id;
+		// Return the UUID (not the DB ID) to the API for security
+		return $uuid;
 	}
 
-	/**
-	 * Transition booking status.
-	 *
-	 * @param int    $appointment_id Appointment ID.
-	 * @param string $new_status      New status.
-	 * @return bool Success or failure.
-	 */
 	public function update_status( $appointment_id, $new_status ) {
 		global $wpdb;
 
