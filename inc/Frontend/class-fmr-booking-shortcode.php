@@ -58,8 +58,7 @@ class FMR_Booking_Shortcode {
 		wp_enqueue_style( 'fmr-booking-frontend' );
 		wp_enqueue_script( 'fmr-booking-frontend' );
 
-		// 3. 🚨 FIX: Securely bridge the backend to the frontend JS
-		// This creates a global JS object called `fmrBookingConfig`
+		// 3. Securely bridge the backend to the frontend JS
 		wp_localize_script( 'fmr-booking-frontend', 'fmrBookingConfig', array(
 			'restUrl'   => esc_url_raw( rest_url( 'fmr-booking/v1' ) ),
 			'nonce'     => wp_create_nonce( 'wp_rest' ),
@@ -73,9 +72,16 @@ class FMR_Booking_Shortcode {
 
 		// 4. Render the UI
 		ob_start();
-		// Extract variables so they are accessible inside the template
 		$service_id = (int) $atts['service_id'];
-		include plugin_dir_path( dirname( __FILE__ ) ) . '../../templates/booking-form.php';
+		
+		// 🚨 FIX: Corrected the directory path so it reliably points to /templates/booking-form.php
+		$template_path = dirname( dirname( dirname( __FILE__ ) ) ) . '/templates/booking-form.php';
+		if ( file_exists( $template_path ) ) {
+			include $template_path;
+		} else {
+			echo '<p>Error: Booking template missing.</p>';
+		}
+		
 		return ob_get_clean();
 	}
 }
