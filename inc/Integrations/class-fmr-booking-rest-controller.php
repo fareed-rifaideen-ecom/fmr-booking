@@ -1,24 +1,8 @@
 <?php
-/**
- * REST API controller for booking operations.
- *
- * @link       https://fmr.com
- * @since      1.0.0
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Integrations
- */
-
 if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-/**
- * REST API controller for booking operations.
- *
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Integrations
- * @author     FMR
- */
 class FMR_Booking_REST_Controller extends WP_REST_Controller {
 
 	private $namespace = 'fmr-booking/v1';
@@ -30,80 +14,70 @@ class FMR_Booking_REST_Controller extends WP_REST_Controller {
 		$this->booking_service      = $booking_service;
 	}
 
-	/**
-	 * Register the routes.
-	 */
-		public function register_routes() {
-			register_rest_route( $this->namespace, '/slots', array(
-				array(
-					'methods'             => WP_REST_Server::READABLE,
-					'callback'            => array( $this, 'get_slots' ),
-					'permission_callback' => '__return_true',
-					'args'                => array(
-						'service_id' => array(
-							'required'          => true,
-							'validate_callback' => function( $param ) {
-								return is_numeric( $param );
-							},
-							'sanitize_callback' => 'absint',
-						),
-						'date'       => array(
-							'required'          => true,
-							'validate_callback' => function( $param ) {
-								return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $param );
-							},
-							'sanitize_callback' => 'sanitize_text_field',
-						),
+	public function register_routes() {
+		register_rest_route( $this->namespace, '/services/(?P<service_id>\d+)/slots', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( $this, 'get_slots' ),
+				'permission_callback' => '__return_true', // NOTE: Add IP rate-limiting here in production
+				'args'                => array(
+					'date' => array(
+						'required'          => true,
+						'validate_callback' => function( $param ) { return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $param ); },
+						'sanitize_callback' => 'sanitize_text_field',
 					),
 				),
-			) );
+			),
+		) );
 
-			register_rest_route( $this->namespace, '/book', array(
-				array(
-					'methods'             => WP_REST_Server::CREATABLE,
-					'callback'            => array( $this, 'create_booking' ),
-					'permission_callback' => array( $this, 'check_nonce' ),
-					'args'                => array(
-						'service_id'     => array( 'required' => true, 'sanitize_callback' => 'absint' ),
-						'start_time'     => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
-						'customer_name'  => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
-						'customer_email' => array( 'required' => true, 'sanitize_callback' => 'sanitize_email' ),
-						'customer_phone' => array( 'sanitize_callback' => 'sanitize_text_field' ),
-						'notes'          => array( 'sanitize_callback' => 'sanitize_textarea_field' ),
-					),
+		register_rest_route( $this->namespace, '/appointments', array(
+			array(
+				'methods'             => WP_REST_Server::CREATABLE,
+				'callback'            => array( $this, 'create_booking' ),
+				'permission_callback' => array( $this, 'check_nonce' ),
+				'args'                => array(
+					'service_id'     => array( 'required' => true, 'sanitize_callback' => 'absint' ),
+					'start_time'     => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+					'customer_name'  => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+					'customer_email' => array( 'required' => true, 'sanitize_callback' => 'sanitize_email' ),
+					'customer_phone' => array( 'sanitize_callback' => 'sanitize_text_field' ),
+					'notes'          => array( 'sanitize_callback' => 'sanitize_textarea_field' ),
 				),
-			) );
-		}
-
-	/**
-	 * Get available slots.
-	 */
-	public function get_slots( $request ) {
-		$service_id = $request['service_id'];
-		$date       = $request['date'];
-		$slots      = $this->availability_service->get_available_slots( $service_id, $date );
-		return rest_ensure_response( $slots );
+			),
+		) );
 	}
 
-	/**
-	 * Create a booking.
-	 */
+	public function get_slots( $request ) {
+		try {
+			$slots = $this->availability_service->get_available_slots( $request['service_id'], $request['date'] );
+			return rest_ensure_response( array( 'data' => $slots ) );
+		} catch ( Exception $e ) {
+			return $this->format_error( 'INTERNAL_ERROR', $e->getMessage(), 500 );
+		}
+	}
+
 	public function create_booking( $request ) {
-		$params = $request->get_params();
-		$result = $this->booking_service->create_booking( $params );
+		$result = $this->booking_service->create_booking( $request->get_params() );
 
 		if ( is_wp_error( $result ) ) {
-			return new WP_Error( $result->get_error_code(), $result->get_error_message(), array( 'status' => 400 ) );
+			return $this->format_error( $result->get_error_code(), $result->get_error_message(), 400 );
 		}
 
-		return rest_ensure_response( array( 'appointment_id' => $result, 'message' => __( 'Booking successful.', 'fmr-booking' ) ) );
+		return rest_ensure_response( array( 'data' => array( 'id' => $result, 'status' => 'pending' ) ) );
 	}
 
-	/**
-	 * Check nonce for secure requests.
-	 */
 	public function check_nonce( $request ) {
-		$nonce = $request->get_header( 'X-WP-Nonce' );
-		return wp_verify_nonce( $nonce, 'wp_rest' );
+		return wp_verify_nonce( $request->get_header( 'X-WP-Nonce' ), 'wp_rest' );
+	}
+
+	private function format_error( $code, $message, $status ) {
+		return new WP_REST_Response( array(
+			'error' => array(
+				'code'      => $code,
+				'message'   => $message,
+				'requestId' => wp_generate_uuid4(),
+				'details'   => array()
+			)
+		), $status );
 	}
 }
