@@ -62,7 +62,8 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
-			KEY client_id (client_id)
+			KEY client_id (client_id),
+			CONSTRAINT fk_branding_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 3. Services
@@ -79,7 +80,8 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
-			KEY client_id (client_id)
+			KEY client_id (client_id),
+			CONSTRAINT fk_service_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 4. Resources (Staff, Rooms, Equipment)
@@ -94,7 +96,8 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
-			KEY client_id (client_id)
+			KEY client_id (client_id),
+			CONSTRAINT fk_resource_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 5. Service-Resource Rules
@@ -106,12 +109,15 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY service_id (service_id),
-			KEY resource_id (resource_id)
+			KEY resource_id (resource_id),
+			CONSTRAINT fk_rule_service FOREIGN KEY (service_id) REFERENCES {$wpdb->prefix}fmr_services(id) ON DELETE CASCADE,
+			CONSTRAINT fk_rule_resource FOREIGN KEY (resource_id) REFERENCES {$wpdb->prefix}fmr_resources(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 6. Appointments
 		$tables[] = "CREATE TABLE {$wpdb->prefix}fmr_appointments (
 			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			uuid varchar(36) NOT NULL,
 			client_id bigint(20) UNSIGNED NOT NULL,
 			service_id bigint(20) UNSIGNED NOT NULL,
 			customer_name varchar(255) NOT NULL,
@@ -125,9 +131,11 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
+			UNIQUE KEY uuid (uuid),
 			KEY client_id (client_id),
-			KEY service_id (service_id),
-			KEY start_time (start_time)
+			KEY service_time (service_id, start_time, end_time),
+			CONSTRAINT fk_appt_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE,
+			CONSTRAINT fk_appt_service FOREIGN KEY (service_id) REFERENCES {$wpdb->prefix}fmr_services(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 7. Resource Reservations
@@ -141,7 +149,9 @@ class FMR_Booking_Schema {
 			PRIMARY KEY  (id),
 			KEY appointment_id (appointment_id),
 			KEY resource_id (resource_id),
-			KEY start_time (start_time)
+			KEY start_time (start_time),
+			CONSTRAINT fk_resv_appt FOREIGN KEY (appointment_id) REFERENCES {$wpdb->prefix}fmr_appointments(id) ON DELETE CASCADE,
+			CONSTRAINT fk_resv_resource FOREIGN KEY (resource_id) REFERENCES {$wpdb->prefix}fmr_resources(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 8. Slot Locks (Temporary locks during checkout)
@@ -153,7 +163,8 @@ class FMR_Booking_Schema {
 			expires_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY session_id (session_id),
-			KEY expires_at (expires_at)
+			KEY expires_at (expires_at),
+			CONSTRAINT fk_lock_service FOREIGN KEY (service_id) REFERENCES {$wpdb->prefix}fmr_services(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 9. Reminder Queue
@@ -166,7 +177,8 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY appointment_id (appointment_id),
-			KEY scheduled_at (scheduled_at)
+			KEY scheduled_at (scheduled_at),
+			CONSTRAINT fk_reminder_appt FOREIGN KEY (appointment_id) REFERENCES {$wpdb->prefix}fmr_appointments(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 10. Notification Logs
@@ -179,7 +191,8 @@ class FMR_Booking_Schema {
 			sent_at datetime DEFAULT CURRENT_TIMESTAMP,
 			status varchar(50) DEFAULT 'success',
 			PRIMARY KEY  (id),
-			KEY appointment_id (appointment_id)
+			KEY appointment_id (appointment_id),
+			CONSTRAINT fk_log_appt FOREIGN KEY (appointment_id) REFERENCES {$wpdb->prefix}fmr_appointments(id) ON DELETE SET NULL
 		) $charset_collate;";
 
 		// 11. Approval Requests
@@ -192,7 +205,8 @@ class FMR_Booking_Schema {
 			actioned_at datetime DEFAULT NULL,
 			actioned_by bigint(20) UNSIGNED DEFAULT NULL,
 			PRIMARY KEY  (id),
-			KEY appointment_id (appointment_id)
+			KEY appointment_id (appointment_id),
+			CONSTRAINT fk_approval_appt FOREIGN KEY (appointment_id) REFERENCES {$wpdb->prefix}fmr_appointments(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		// 12. Activity Logs
@@ -207,10 +221,12 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY client_id (client_id),
-			KEY object_id (object_id)
+			KEY object_id (object_id),
+			CONSTRAINT fk_activity_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE SET NULL
 		) $charset_collate;";
 
 		// 13. Attachments
+		// Cannot use explicit FK here because object_id is polymorphic (relies on object_type).
 		$tables[] = "CREATE TABLE {$wpdb->prefix}fmr_attachments (
 			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 			object_id bigint(20) UNSIGNED NOT NULL,
@@ -225,5 +241,4 @@ class FMR_Booking_Schema {
 
 		return $tables;
 	}
-
 }
