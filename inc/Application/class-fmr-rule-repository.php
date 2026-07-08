@@ -21,29 +21,13 @@ if ( ! defined( 'WPINC' ) ) {
  */
 class FMR_Rule_Repository {
 
-	/**
-	 * Table name.
-	 *
-	 * @var string
-	 */
 	private $table_name;
 
-	/**
-	 * Initialize the class.
-	 */
 	public function __construct() {
 		global $wpdb;
 		$this->table_name = $wpdb->prefix . 'fmr_service_resource_rules';
 	}
 
-	/**
-	 * Add a rule mapping a service to a resource.
-	 *
-	 * @param int    $service_id  Service ID.
-	 * @param int    $resource_id Resource ID.
-	 * @param string $rule_type   Type of rule (e.g., 'required').
-	 * @return int|bool Insert ID or false.
-	 */
 	public function add_rule( $service_id, $resource_id, $rule_type = 'required' ) {
 		global $wpdb;
 		$result = $wpdb->insert(
@@ -58,28 +42,18 @@ class FMR_Rule_Repository {
 		return $result ? $wpdb->insert_id : false;
 	}
 
-	/**
-	 * Get all required resources for a specific service.
-	 *
-	 * @param int $service_id Service ID.
-	 * @return array List of resource IDs.
-	 */
 	public function get_required_resources( $service_id ) {
 		global $wpdb;
+		// 🚨 Performance: Explicitly selecting only what is needed.
 		return $wpdb->get_col( $wpdb->prepare(
 			"SELECT resource_id FROM {$this->table_name} WHERE service_id = %d AND rule_type = 'required'",
 			$service_id
 		) );
 	}
 
-	/**
-	 * Delete all rules for a service.
-	 *
-	 * @param int $service_id Service ID.
-	 * @return bool Success or failure.
-	 */
 	public function delete_by_service( $service_id ) {
 		global $wpdb;
-		return $wpdb->delete( $this->table_name, array( 'service_id' => $id ) );
+		// 🚨 FIX: Changed undefined variable $id to the correct parameter $service_id
+		return $wpdb->delete( $this->table_name, array( 'service_id' => $service_id ), array( '%d' ) );
 	}
 }
