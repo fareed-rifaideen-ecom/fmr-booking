@@ -118,20 +118,24 @@ class FMR_Booking_Schema {
 		$tables[] = "CREATE TABLE {$wpdb->prefix}fmr_appointments (
 			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
 			uuid varchar(36) NOT NULL,
+			secure_token varchar(64) NOT NULL,
 			client_id bigint(20) UNSIGNED NOT NULL,
 			service_id bigint(20) UNSIGNED NOT NULL,
 			customer_name varchar(255) NOT NULL,
 			customer_email varchar(255) NOT NULL,
 			customer_phone varchar(50) DEFAULT NULL,
+			booking_mode enum('in_person', 'virtual') DEFAULT 'in_person',
 			start_time datetime NOT NULL,
 			end_time datetime NOT NULL,
 			status enum('pending', 'approved', 'cancelled', 'rescheduled', 'completed') DEFAULT 'pending',
 			notes text DEFAULT NULL,
+			intake_answers_json longtext DEFAULT NULL,
 			wc_order_id bigint(20) UNSIGNED DEFAULT NULL,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			UNIQUE KEY uuid (uuid),
+			UNIQUE KEY secure_token (secure_token),
 			KEY client_id (client_id),
 			KEY service_time (service_id, start_time, end_time),
 			CONSTRAINT fk_appt_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE,
@@ -237,6 +241,38 @@ class FMR_Booking_Schema {
 			created_at datetime DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY object_id (object_id)
+		) $charset_collate;";
+
+		// 14. Availability Rules
+		$tables[] = "CREATE TABLE {$wpdb->prefix}fmr_availability_rules (
+			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			client_id bigint(20) UNSIGNED NOT NULL,
+			target_type enum('service', 'resource', 'global') NOT NULL,
+			target_id bigint(20) UNSIGNED DEFAULT NULL,
+			day_of_week tinyint(1) NOT NULL COMMENT '0=Sun, 1=Mon, etc.',
+			start_time time NOT NULL,
+			end_time time NOT NULL,
+			is_active tinyint(1) DEFAULT 1,
+			created_at datetime DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY target_rule (target_type, target_id),
+			CONSTRAINT fk_avail_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE
+		) $charset_collate;";
+
+		// 15. Blockouts
+		$tables[] = "CREATE TABLE {$wpdb->prefix}fmr_blockouts (
+			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			client_id bigint(20) UNSIGNED NOT NULL,
+			target_type enum('service', 'resource', 'global') NOT NULL,
+			target_id bigint(20) UNSIGNED DEFAULT NULL,
+			start_date datetime NOT NULL,
+			end_date datetime NOT NULL,
+			reason varchar(255) DEFAULT NULL,
+			created_at datetime DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY  (id),
+			KEY target_blockout (target_type, target_id),
+			KEY dates (start_date, end_date),
+			CONSTRAINT fk_blockout_client FOREIGN KEY (client_id) REFERENCES {$wpdb->prefix}fmr_client_profiles(id) ON DELETE CASCADE
 		) $charset_collate;";
 
 		return $tables;
