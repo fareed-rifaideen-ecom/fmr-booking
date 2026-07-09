@@ -23,7 +23,6 @@ class FMR_Admin_Service_Controller {
 		$this->service_repo  = $service_repo;
 		$this->resource_repo = $resource_repo;
 		
-		// Safely instantiate the Rule Repo if not injected by the container yet
 		$this->rule_repo = $rule_repo ? $rule_repo : new FMR_Rule_Repository();
 
 		$this->ensure_client_exists();
@@ -86,10 +85,8 @@ class FMR_Admin_Service_Controller {
 
 			// 🚨 PROCESS RESOURCE LINK RULES
 			if ( $service_id && $message !== 'error' ) {
-				// Wipe existing rules for this service for a clean slate
 				$this->rule_repo->delete_by_service( $service_id );
 				
-				// Insert newly checked resources
 				if ( ! empty( $_POST['resource_ids'] ) && is_array( $_POST['resource_ids'] ) ) {
 					foreach ( $_POST['resource_ids'] as $res_id ) {
 						$this->rule_repo->add_rule( $service_id, absint( $res_id ), 'required' );
@@ -216,12 +213,14 @@ class FMR_Admin_Service_Controller {
 
 		if ( $service_id ) {
 			$service = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}fmr_services WHERE id = %d", $service_id ) );
-			// Fetch currently required resources
-			$selected_resources = $this->rule_repo->get_required_resources( $service_id );
-			if ( ! is_array( $selected_resources ) ) $selected_resources = array();
+			$fetched = $this->rule_repo->get_required_resources( $service_id );
+			if ( is_array( $fetched ) ) {
+				$selected_resources = $fetched;
+			}
 		}
 
-		// Fetch all available active resources
+		// 🚨 FIX: Force strict integer conversion to prevent string vs int mismatch in the HTML logic
+		$selected_resources = array_map( 'absint', $selected_resources );
 		$all_resources = $wpdb->get_results( $wpdb->prepare( "SELECT id, name, type FROM {$wpdb->prefix}fmr_resources WHERE client_id = %d AND is_active = 1", $this->client_id ) );
 
 		?>
@@ -252,9 +251,12 @@ class FMR_Admin_Service_Controller {
 					<td>
 						<?php if ( $all_resources ) : ?>
 							<fieldset>
-								<?php foreach ( $all_resources as $res ) : ?>
+								<?php foreach ( $all_resources as $res ) : 
+									$res_id = absint( $res->id ); 
+									$is_checked = in_array( $res_id, $selected_resources, true );
+								?>
 									<label style="display:block; margin-bottom: 5px;">
-										<input type="checkbox" name="resource_ids[]" value="<?php echo esc_attr( $res->id ); ?>" <?php checked( in_array( $res->id, $selected_resources ) ); ?>>
+										<input type="checkbox" name="resource_ids[]" value="<?php echo esc_attr( $res_id ); ?>" <?php checked( $is_checked ); ?>>
 										<?php echo esc_html( $res->name . ' (' . ucfirst( $res->type ) . ')' ); ?>
 									</label>
 								<?php endforeach; ?>
