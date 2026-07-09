@@ -19,14 +19,8 @@ class FMR_Admin_Service_Controller {
 	private $rule_repo;
 	private $client_id;
 
-	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo, FMR_Rule_Repository $rule_repo = null ) {
-		$this->service_repo  = $service_repo;
-		$this->resource_repo = $resource_repo;
-		
-		$this->rule_repo = $rule_repo ? $rule_repo : new FMR_Rule_Repository();
-
+	public function __construct( FMR_Service_Repository $service_repo = null, FMR_Resource_Repository $resource_repo = null, FMR_Rule_Repository $rule_repo = null ) {
 		$this->ensure_client_exists();
-
 		add_action( 'admin_init', array( $this, 'process_actions' ) );
 		add_action( 'admin_notices', array( $this, 'display_notices' ) );
 	}
@@ -83,13 +77,25 @@ class FMR_Admin_Service_Controller {
 				$message = ( $result !== false ) ? 'created' : 'error';
 			}
 
-			// 🚨 PROCESS RESOURCE LINK RULES
+			// 🚨 DIRECT DB SAVE: Bypassing the repository completely to force the save
 			if ( $service_id && $message !== 'error' ) {
-				$this->rule_repo->delete_by_service( $service_id );
+				$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
 				
+				// 1. Wipe old rules
+				$wpdb->delete( $rules_table, array( 'service_id' => $service_id ), array( '%d' ) );
+				
+				// 2. Insert new checks
 				if ( ! empty( $_POST['resource_ids'] ) && is_array( $_POST['resource_ids'] ) ) {
 					foreach ( $_POST['resource_ids'] as $res_id ) {
-						$this->rule_repo->add_rule( $service_id, absint( $res_id ), 'required' );
+						$wpdb->insert(
+							$rules_table,
+							array(
+								'service_id'  => absint( $service_id ),
+								'resource_id' => absint( $res_id ),
+								'rule_type'   => 'required'
+							),
+							array( '%d', '%d', '%s' )
+						);
 					}
 				}
 			}
@@ -110,7 +116,6 @@ class FMR_Admin_Service_Controller {
 		if ( isset( $_POST['fmr_action'] ) && $_POST['fmr_action'] === 'save_resource' ) {
 			check_admin_referer( 'fmr_save_resource', 'fmr_resource_nonce' );
 			$table = $wpdb->prefix . 'fmr_resources';
-			
 			$valid_types = array( 'staff', 'room', 'equipment', 'virtual' );
 			$type = in_array( $_POST['type'], $valid_types, true ) ? $_POST['type'] : 'staff';
 
@@ -160,10 +165,6 @@ class FMR_Admin_Service_Controller {
 		}
 	}
 
-	// ==========================================
-	// SERVICES UI
-	// ==========================================
-
 	public function render_services_page() {
 		$action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : 'list';
 		echo '<div class="wrap"><h1 class="wp-heading-inline">' . esc_html__( 'Services', 'fmr-booking' ) . '</h1>';
@@ -210,16 +211,25 @@ class FMR_Admin_Service_Controller {
 		$service = (object) array( 'title' => '', 'description' => '', 'duration' => 30, 'buffer_before' => 0, 'buffer_after' => 0, 'price' => '0.00', 'is_active' => 1 );
 		
 		$selected_resources = array();
+		$db_diagnostic = '';
 
+		// 🚨 DIRECT DB FETCH: Bypassing the repository
 		if ( $service_id ) {
 			$service = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}fmr_services WHERE id = %d", $service_id ) );
-			$fetched = $this->rule_repo->get_required_resources( $service_id );
-			if ( is_array( $fetched ) ) {
-				$selected_resources = $fetched;
+			
+			$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
+			
+			// 🚨 DIAGNOSTIC: Check if table even exists!
+			if ( $wpdb->get_var( "SHOW TABLES LIKE '$rules_table'" ) != $rules_table ) {
+				$db_diagnostic = "CRITICAL ERROR: The table '$rules_table' is MISSING from your database! WordPress failed to create it during activation.";
+			} else {
+				$fetched = $wpdb->get_col( $wpdb->prepare( "SELECT resource_id FROM {$rules_table} WHERE service_id = %d", $service_id ) );
+				if ( is_array( $fetched ) ) {
+					$selected_resources = $fetched;
+				}
 			}
 		}
 
-		// 🚨 FIX: Force strict integer conversion to prevent string vs int mismatch in the HTML logic
 		$selected_resources = array_map( 'absint', $selected_resources );
 		$all_resources = $wpdb->get_results( $wpdb->prepare( "SELECT id, name, type FROM {$wpdb->prefix}fmr_resources WHERE client_id = %d AND is_active = 1", $this->client_id ) );
 
@@ -249,6 +259,13 @@ class FMR_Admin_Service_Controller {
 				<tr>
 					<th scope="row"><label><?php esc_html_e( 'Required Resources', 'fmr-booking' ); ?></label></th>
 					<td>
+						<?php if ( $db_diagnostic ) : ?>
+							<div style="background:#ffebee; border-left:4px solid red; padding:10px; margin-bottom:15px;">
+								<strong><?php echo esc_html( $db_diagnostic ); ?></strong><br>
+								To fix this, deactivate and reactivate the plugin. If it still persists, we will run the SQL manually.
+							</div>
+						<?php endif; ?>
+
 						<?php if ( $all_resources ) : ?>
 							<fieldset>
 								<?php foreach ( $all_resources as $res ) : 
@@ -282,10 +299,6 @@ class FMR_Admin_Service_Controller {
 		</form>
 		<?php
 	}
-
-	// ==========================================
-	// RESOURCES UI
-	// ==========================================
 
 	public function render_resources_page() {
 		$action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : 'list';
@@ -360,7 +373,6 @@ class FMR_Admin_Service_Controller {
 					<th scope="row"><label for="capacity"><?php esc_html_e( 'Capacity', 'fmr-booking' ); ?></label></th>
 					<td>
 						<input name="capacity" type="number" id="capacity" value="<?php echo esc_attr( $resource->capacity ); ?>" class="small-text" min="1" required>
-						<p class="description"><?php esc_html_e( 'How many concurrent bookings can this resource handle?', 'fmr-booking' ); ?></p>
 					</td>
 				</tr>
 				<tr>
