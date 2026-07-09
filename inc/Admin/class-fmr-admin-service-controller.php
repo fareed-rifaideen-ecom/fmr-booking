@@ -1,11 +1,6 @@
 <?php
 /**
  * Admin controller for handling services and resources.
- *
- * @link       https://fmr.com
- * @since      1.0.0
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Admin
  */
 
 if ( ! defined( 'WPINC' ) ) {
@@ -25,6 +20,7 @@ class FMR_Admin_Service_Controller {
 		$this->rule_repo     = $rule_repo ? $rule_repo : new FMR_Rule_Repository();
 
 		$this->ensure_client_exists();
+
 		add_action( 'admin_init', array( $this, 'process_actions' ) );
 		add_action( 'admin_notices', array( $this, 'display_notices' ) );
 	}
@@ -53,84 +49,6 @@ class FMR_Admin_Service_Controller {
 	public function process_actions() {
 		if ( ! current_user_can( 'manage_options' ) ) return;
 		global $wpdb;
-
-		// 🚨 THE SELF-HEALING DATABASE FIXER
-		if ( isset( $_GET['action'] ) && $_GET['action'] === 'force_fix_db' ) {
-			check_admin_referer( 'fmr_force_fix' );
-			$charset_collate = $wpdb->get_charset_collate();
-
-			// 1. Force Create Rules Table (Stripped of strict constraints)
-			$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
-			$wpdb->query( "CREATE TABLE IF NOT EXISTS {$rules_table} (
-				id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-				service_id bigint(20) UNSIGNED NOT NULL,
-				resource_id bigint(20) UNSIGNED NOT NULL,
-				rule_type varchar(50) DEFAULT 'required',
-				created_at datetime DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY  (id),
-				KEY service_id (service_id),
-				KEY resource_id (resource_id)
-			) {$charset_collate};" );
-
-			// 2. Force Create Appointments Table
-			$appts_table = $wpdb->prefix . 'fmr_appointments';
-			$wpdb->query( "CREATE TABLE IF NOT EXISTS {$appts_table} (
-				id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-				uuid varchar(36) NOT NULL,
-				secure_token varchar(64) NOT NULL,
-				client_id bigint(20) UNSIGNED NOT NULL,
-				service_id bigint(20) UNSIGNED NOT NULL,
-				customer_name varchar(255) NOT NULL,
-				customer_email varchar(255) NOT NULL,
-				customer_phone varchar(50) DEFAULT NULL,
-				booking_mode enum('in_person', 'virtual') DEFAULT 'in_person',
-				start_time datetime NOT NULL,
-				end_time datetime NOT NULL,
-				status enum('pending', 'approved', 'cancelled', 'rescheduled', 'completed') DEFAULT 'pending',
-				notes text DEFAULT NULL,
-				intake_answers_json longtext DEFAULT NULL,
-				wc_order_id bigint(20) UNSIGNED DEFAULT NULL,
-				created_at datetime DEFAULT CURRENT_TIMESTAMP,
-				updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-				PRIMARY KEY  (id),
-				UNIQUE KEY uuid (uuid),
-				UNIQUE KEY secure_token (secure_token),
-				KEY client_id (client_id),
-				KEY service_time (service_id, start_time, end_time)
-			) {$charset_collate};" );
-
-			// 3. Force Create Reservations Table
-			$resv_table = $wpdb->prefix . 'fmr_resource_reservations';
-			$wpdb->query( "CREATE TABLE IF NOT EXISTS {$resv_table} (
-				id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-				appointment_id bigint(20) UNSIGNED NOT NULL,
-				resource_id bigint(20) UNSIGNED NOT NULL,
-				start_time datetime NOT NULL,
-				end_time datetime NOT NULL,
-				created_at datetime DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY  (id),
-				KEY appointment_id (appointment_id),
-				KEY resource_id (resource_id),
-				KEY start_time (start_time)
-			) {$charset_collate};" );
-
-			// 4. Force Create Locks Table (This powers the frontend slots)
-			$locks_table = $wpdb->prefix . 'fmr_slot_locks';
-			$wpdb->query( "CREATE TABLE IF NOT EXISTS {$locks_table} (
-				id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-				session_id varchar(255) NOT NULL,
-				service_id bigint(20) UNSIGNED NOT NULL,
-				start_time datetime NOT NULL,
-				expires_at datetime NOT NULL,
-				PRIMARY KEY  (id),
-				KEY session_id (session_id),
-				KEY expires_at (expires_at)
-			) {$charset_collate};" );
-
-			$redirect_id = isset($_GET['service_id']) ? absint($_GET['service_id']) : 0;
-			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'action' => 'edit', 'id' => $redirect_id, 'msg' => 'db_fixed' ), admin_url( 'admin.php' ) ) );
-			exit;
-		}
 
 		// --- PROCESS SERVICES ---
 		if ( isset( $_POST['fmr_action'] ) && $_POST['fmr_action'] === 'save_service' ) {
@@ -165,6 +83,7 @@ class FMR_Admin_Service_Controller {
 				
 				if ( ! empty( $_POST['resource_ids'] ) && is_array( $_POST['resource_ids'] ) ) {
 					foreach ( $_POST['resource_ids'] as $res_id ) {
+						// 🚨 The repository will now auto-create the table if missing!
 						$this->rule_repo->add_rule( $service_id, absint( $res_id ), 'required' );
 					}
 				}
@@ -186,6 +105,7 @@ class FMR_Admin_Service_Controller {
 		if ( isset( $_POST['fmr_action'] ) && $_POST['fmr_action'] === 'save_resource' ) {
 			check_admin_referer( 'fmr_save_resource', 'fmr_resource_nonce' );
 			$table = $wpdb->prefix . 'fmr_resources';
+			
 			$valid_types = array( 'staff', 'room', 'equipment', 'virtual' );
 			$type = in_array( $_POST['type'], $valid_types, true ) ? $_POST['type'] : 'staff';
 
@@ -223,11 +143,10 @@ class FMR_Admin_Service_Controller {
 		if ( ! isset( $_GET['msg'] ) ) return;
 
 		$msgs = array(
-			'created'  => __( 'Item successfully created.', 'fmr-booking' ),
-			'updated'  => __( 'Item successfully updated.', 'fmr-booking' ),
-			'deleted'  => __( 'Item successfully deleted.', 'fmr-booking' ),
-			'db_fixed' => __( 'Database successfully patched! All missing tables have been created.', 'fmr-booking' ),
-			'error'    => __( 'Database error: Action failed.', 'fmr-booking' ),
+			'created' => __( 'Item successfully created.', 'fmr-booking' ),
+			'updated' => __( 'Item successfully updated.', 'fmr-booking' ),
+			'deleted' => __( 'Item successfully deleted.', 'fmr-booking' ),
+			'error'   => __( 'Database error: Action failed.', 'fmr-booking' ),
 		);
 
 		if ( isset( $msgs[ $_GET['msg'] ] ) ) {
@@ -282,20 +201,12 @@ class FMR_Admin_Service_Controller {
 		$service = (object) array( 'title' => '', 'description' => '', 'duration' => 30, 'buffer_before' => 0, 'buffer_after' => 0, 'price' => '0.00', 'is_active' => 1 );
 		
 		$selected_resources = array();
-		$db_diagnostic = '';
 
 		if ( $service_id ) {
 			$service = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}fmr_services WHERE id = %d", $service_id ) );
-			
-			$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
-			
-			if ( $wpdb->get_var( "SHOW TABLES LIKE '$rules_table'" ) != $rules_table ) {
-				$db_diagnostic = "CRITICAL ERROR: The table '$rules_table' is MISSING from your database!";
-			} else {
-				$fetched = $wpdb->get_col( $wpdb->prepare( "SELECT resource_id FROM {$rules_table} WHERE service_id = %d", $service_id ) );
-				if ( is_array( $fetched ) ) {
-					$selected_resources = $fetched;
-				}
+			$fetched = $this->rule_repo->get_required_resources( $service_id );
+			if ( is_array( $fetched ) ) {
+				$selected_resources = $fetched;
 			}
 		}
 
@@ -328,16 +239,6 @@ class FMR_Admin_Service_Controller {
 				<tr>
 					<th scope="row"><label><?php esc_html_e( 'Required Resources', 'fmr-booking' ); ?></label></th>
 					<td>
-						<?php if ( $db_diagnostic ) : 
-							$fix_url = wp_nonce_url( add_query_arg( array( 'action' => 'force_fix_db', 'service_id' => $service_id ) ), 'fmr_force_fix' );
-						?>
-							<div style="background:#ffebee; border-left:4px solid #dc3232; padding:15px; margin-bottom:20px; border-radius:3px;">
-								<p style="margin-top:0; color:#b32d2d; font-size:14px;"><strong><?php echo esc_html( $db_diagnostic ); ?></strong></p>
-								<p style="color:#666;">WordPress's auto-installer failed. We have built a self-healing tool to forcefully create all missing tables.</p>
-								<a href="<?php echo esc_url( $fix_url ); ?>" class="button button-primary" style="background: #dc3232; border-color: #b32d2d; color: white; text-shadow: none;">Force Fix Database Now</a>
-							</div>
-						<?php endif; ?>
-
 						<?php if ( $all_resources ) : ?>
 							<fieldset>
 								<?php foreach ( $all_resources as $res ) : 
