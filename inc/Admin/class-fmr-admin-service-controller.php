@@ -16,13 +16,13 @@ class FMR_Admin_Service_Controller {
 
 	private $service_repo;
 	private $resource_repo;
-	private $client_id = 1; // Defaulting to 1 for MVP. In a multi-tenant setup, this comes from the current user's assigned client.
+	private $client_id = 1; // Defaulting to 1 for MVP.
 
 	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo ) {
 		$this->service_repo  = $service_repo;
 		$this->resource_repo = $resource_repo;
 
-		// 🚨 SECURITY: Process forms early to allow safe redirects and prevent CSRF.
+		// Process forms early to allow safe redirects and prevent CSRF.
 		add_action( 'admin_init', array( $this, 'process_actions' ) );
 		add_action( 'admin_notices', array( $this, 'display_notices' ) );
 	}
@@ -32,9 +32,6 @@ class FMR_Admin_Service_Controller {
 		add_submenu_page( 'fmr-booking', __( 'Resources', 'fmr-booking' ), __( 'Resources', 'fmr-booking' ), 'manage_options', 'fmr-booking-resources', array( $this, 'render_resources_page' ) );
 	}
 
-	/**
-	 * Central processor for all Admin POST actions related to Services and Resources.
-	 */
 	public function process_actions() {
 		if ( ! current_user_can( 'manage_options' ) ) return;
 
@@ -93,9 +90,6 @@ class FMR_Admin_Service_Controller {
 		}
 	}
 
-	/**
-	 * Render the Services Page (Routes between List and Form)
-	 */
 	public function render_services_page() {
 		$action = isset( $_GET['action'] ) ? sanitize_text_field( $_GET['action'] ) : 'list';
 		
@@ -131,7 +125,10 @@ class FMR_Admin_Service_Controller {
 				echo '<td><strong><a href="' . esc_url( $edit_url ) . '">' . esc_html( $service->title ) . '</a></strong>';
 				echo '<div class="row-actions"><span class="edit"><a href="' . esc_url( $edit_url ) . '">' . esc_html__( 'Edit', 'fmr-booking' ) . '</a> | </span><span class="trash"><a href="' . esc_url( $delete_url ) . '" class="submitdelete" onclick="return confirm(\'Are you sure?\');">' . esc_html__( 'Delete', 'fmr-booking' ) . '</a></span></div></td>';
 				echo '<td>' . esc_html( $service->duration ) . ' mins</td>';
-				echo '<td>$' . esc_html( number_format( $service->price, 2 ) ) . '</td>';
+				
+				// 🚨 FIX: Explicitly cast $service->price to a float to satisfy PHP 8 strict typing
+				echo '<td>$' . esc_html( number_format( (float) $service->price, 2 ) ) . '</td>';
+				
 				echo '<td>' . ( $service->is_active ? '<span style="color:green;">Active</span>' : '<span style="color:red;">Inactive</span>' ) . '</td>';
 				echo '</tr>';
 			}
