@@ -1,13 +1,4 @@
 <?php
-/**
- * Service for handling availability and slot generation.
- *
- * @link       https://fmr.com
- * @since      1.0.0
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Application
- */
-
 if ( ! defined( 'WPINC' ) ) {
 	die;
 }
@@ -36,18 +27,21 @@ class FMR_Availability_Service {
 
 	public function get_available_slots( $service_id, $date ) {
 		$service = $this->service_repo->get( $service_id );
-		if ( ! $service ) return array();
+		
+		// 🚨 DIAGNOSTIC: Throw exact errors so the frontend prints them.
+		if ( ! $service ) throw new Exception("Service not found in the database.");
+		if ( ! $service->is_active ) throw new Exception("This service is currently marked as Inactive.");
 
 		$client_id   = (int) $service->client_id;
-		$day_of_week = (int) date( 'w', strtotime( $date ) ); // 0 = Sunday, 6 = Saturday
+		$day_of_week = (int) date( 'w', strtotime( $date ) );
 
-		// 1. Fetch Schedule Rules (Operating Hours) for this Day
+		// 1. Fetch Schedule Rules
 		$schedules = $this->avail_rule_repo->get_schedule_for_day( $client_id, $day_of_week );
 		
-		// Fast-fail: If there are no rules for this day, they are closed.
-		if ( empty( $schedules ) ) return array(); 
+		if ( empty( $schedules ) ) {
+			throw new Exception("Store is closed on this day of the week. Please check Admin -> Schedules.");
+		}
 
-		// Calculate bounds based on the schedules
 		$open_time  = '23:59:59';
 		$close_time = '00:00:00';
 		foreach ( $schedules as $schedule ) {
@@ -55,10 +49,10 @@ class FMR_Availability_Service {
 			if ( $schedule->end_time > $close_time ) $close_time = $schedule->end_time;
 		}
 
-		// 2. Fetch full-day or partial Blockouts (Holidays / Sick Leave)
+		// 2. Fetch Blockouts
 		$blockouts = $this->avail_rule_repo->get_blockouts_for_date( $client_id, $date );
 
-		// 3. Check Resources (🚨 UPDATED: Now gracefully handles services without specific resources)
+		// 3. Check Resources
 		$required_resource_ids = $this->rule_repo->get_required_resources( $service_id );
 		
 		$daily_reservations  = array();
@@ -68,7 +62,10 @@ class FMR_Availability_Service {
 			$daily_reservations = $this->availability_repo->get_daily_reservations( $required_resource_ids, $date );
 			foreach ( $required_resource_ids as $res_id ) {
 				$resource = $this->resource_repo->get( $res_id );
-				if ( ! $resource || ! $resource->is_active ) return array(); // Fast fail if a required resource is disabled
+				
+				if ( ! $resource ) throw new Exception("A required resource (ID: $res_id) is missing from the database.");
+				if ( ! $resource->is_active ) throw new Exception("Required resource '{$resource->name}' is marked as Inactive.");
+				
 				$resource_capacities[$res_id] = (int) $resource->capacity;
 			}
 		}
@@ -77,22 +74,18 @@ class FMR_Availability_Service {
 		$slots        = array();
 		$current_time = strtotime( "$date $open_time" );
 		$end_time     = strtotime( "$date $close_time" );
-		
-		// Set interval to service duration
-		$interval = (int) $service->duration; 
+		$interval     = (int) $service->duration; 
 
-		// 4. Loop Time Blocks (In-Memory Processing)
-		while ( $current_time + ( $service->duration * 60 ) <= $end_time ) {
+		if ( $interval <= 0 ) throw new Exception("Service duration must be greater than 0.");
+
+		// 4. Loop Time Blocks
+		while ( $current_time + ( $interval * 60 ) <= $end_time ) {
 			$slot_start = date( 'Y-m-d H:i:s', $current_time );
-			$slot_end   = date( 'Y-m-d H:i:s', $current_time + ( $service->duration * 60 ) );
+			$slot_end   = date( 'Y-m-d H:i:s', $current_time + ( $interval * 60 ) );
 			
 			if ( $this->is_slot_available_in_memory( $slot_start, $slot_end, $daily_reservations, $daily_locks, $blockouts, $resource_capacities ) ) {
-				$slots[] = array(
-					'start' => $slot_start,
-					'end'   => $slot_end
-				);
+				$slots[] = array( 'start' => $slot_start, 'end' => $slot_end );
 			}
-			
 			$current_time += $interval * 60; 
 		}
 
@@ -100,21 +93,18 @@ class FMR_Availability_Service {
 	}
 
 	private function is_slot_available_in_memory( $start_time, $end_time, $daily_reservations, $daily_locks, $blockouts, $resource_capacities ) {
-		// A. Check Blockouts (Holidays/Time Off)
 		foreach ( $blockouts as $blockout ) {
 			if ( $start_time < $blockout->end_date && $end_time > $blockout->start_date ) {
 				return false;
 			}
 		}
 
-		// B. Check Cart Locks
 		foreach ( $daily_locks as $lock ) {
 			if ( $start_time < $lock->expires_at && $end_time > $lock->start_time ) {
 				return false;
 			}
 		}
 
-		// C. Check Resource Capacity
 		if ( ! empty( $resource_capacities ) ) {
 			$resource_usage = array();
 			foreach ( $daily_reservations as $reservation ) {
@@ -128,7 +118,6 @@ class FMR_Availability_Service {
 				}
 			}
 		}
-
 		return true;
 	}
 }
