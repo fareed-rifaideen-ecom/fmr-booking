@@ -42,7 +42,7 @@ class FMR_Booking {
 			$this->container['repo.service'],
 			$this->container['repo.resource'],
 			$this->container['repo.rule'],
-			$this->container['repo.avail_rule'] // 🚨 The new dependency is passed safely!
+			$this->container['repo.avail_rule']
 		);
 
 		$this->container['service.booking'] = new FMR_Booking_Service(
@@ -78,7 +78,11 @@ class FMR_Booking {
 
 		// Inject from container
 		$this->loader->add_action( 'admin_menu', new FMR_Admin_Client_Controller( $this->container['repo.client'], $this->container['repo.branding'] ), 'register_menus' );
-		$this->loader->add_action( 'admin_menu', new FMR_Admin_Service_Controller( $this->container['repo.service'], $this->container['repo.resource'] ), 'register_menus' );
+		$this->loader->add_action( 'admin_menu', new FMR_Admin_Service_Controller( $this->container['repo.service'], $this->container['repo.resource'], $this->container['repo.rule'] ), 'register_menus' );
+		
+		// 🚨 NEW: Inject the Availability Controller
+		$this->loader->add_action( 'admin_menu', new FMR_Admin_Availability_Controller(), 'register_menus' );
+
 		$this->loader->add_action( 'admin_menu', new FMR_Admin_Reminder_Controller( $this->container['repo.notification'] ), 'register_menus' );
 		$this->loader->add_action( 'admin_menu', new FMR_Admin_Approval_Controller( $this->container['repo.approval'], $this->container['service.approval'] ), 'register_menus' );
 	}
