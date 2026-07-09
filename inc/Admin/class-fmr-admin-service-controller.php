@@ -16,15 +16,39 @@ class FMR_Admin_Service_Controller {
 
 	private $service_repo;
 	private $resource_repo;
-	private $client_id = 1; // Defaulting to 1 for MVP.
+	private $client_id;
 
 	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo ) {
 		$this->service_repo  = $service_repo;
 		$this->resource_repo = $resource_repo;
 
-		// Process forms early to allow safe redirects and prevent CSRF.
+		// 🚨 FIX: Auto-seed the Default Client to satisfy Foreign Key constraints
+		$this->ensure_client_exists();
+
 		add_action( 'admin_init', array( $this, 'process_actions' ) );
 		add_action( 'admin_notices', array( $this, 'display_notices' ) );
+	}
+
+	/**
+	 * Ensures at least one client profile exists in the database.
+	 */
+	private function ensure_client_exists() {
+		global $wpdb;
+		$client_id = $wpdb->get_var( "SELECT id FROM {$wpdb->prefix}fmr_client_profiles LIMIT 1" );
+		
+		if ( ! $client_id ) {
+			$wpdb->insert( 
+				$wpdb->prefix . 'fmr_client_profiles', 
+				array(
+					'client_name' => 'Default Client',
+					'slug'        => 'default-client'
+				),
+				array( '%s', '%s' )
+			);
+			$this->client_id = (int) $wpdb->insert_id;
+		} else {
+			$this->client_id = (int) $client_id;
+		}
 	}
 
 	public function register_menus() {
@@ -42,25 +66,28 @@ class FMR_Admin_Service_Controller {
 			global $wpdb;
 			$table = $wpdb->prefix . 'fmr_services';
 			
+			// 🚨 FIX: Added safe fallback for buffer inputs
 			$data = array(
 				'client_id'     => $this->client_id,
 				'title'         => sanitize_text_field( $_POST['title'] ),
 				'description'   => sanitize_textarea_field( $_POST['description'] ),
 				'duration'      => absint( $_POST['duration'] ),
-				'buffer_before' => absint( $_POST['buffer_before'] ),
-				'buffer_after'  => absint( $_POST['buffer_after'] ),
+				'buffer_before' => isset( $_POST['buffer_before'] ) ? absint( $_POST['buffer_before'] ) : 0,
+				'buffer_after'  => isset( $_POST['buffer_after'] ) ? absint( $_POST['buffer_after'] ) : 0,
 				'price'         => floatval( $_POST['price'] ),
 				'is_active'     => isset( $_POST['is_active'] ) ? 1 : 0,
 			);
 
+			$result = false;
 			if ( ! empty( $_POST['service_id'] ) ) {
-				$wpdb->update( $table, $data, array( 'id' => absint( $_POST['service_id'] ) ), array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ), array( '%d' ) );
-				$message = 'updated';
+				$result = $wpdb->update( $table, $data, array( 'id' => absint( $_POST['service_id'] ) ), array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ), array( '%d' ) );
+				$message = ( $result !== false ) ? 'updated' : 'error';
 			} else {
-				$wpdb->insert( $table, $data, array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ) );
-				$message = 'created';
+				$result = $wpdb->insert( $table, $data, array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ) );
+				$message = ( $result !== false ) ? 'created' : 'error';
 			}
 
+			// 🚨 FIX: Pass error message query arg if DB fails
 			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'msg' => $message ), admin_url( 'admin.php' ) ) );
 			exit;
 		}
@@ -69,8 +96,9 @@ class FMR_Admin_Service_Controller {
 		if ( isset( $_GET['action'] ) && $_GET['action'] === 'delete_service' && isset( $_GET['id'] ) ) {
 			check_admin_referer( 'delete_service_' . $_GET['id'] );
 			global $wpdb;
-			$wpdb->delete( $wpdb->prefix . 'fmr_services', array( 'id' => absint( $_GET['id'] ) ), array( '%d' ) );
-			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'msg' => 'deleted' ), admin_url( 'admin.php' ) ) );
+			$result = $wpdb->delete( $wpdb->prefix . 'fmr_services', array( 'id' => absint( $_GET['id'] ) ), array( '%d' ) );
+			$message = ( $result !== false ) ? 'deleted' : 'error';
+			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'msg' => $message ), admin_url( 'admin.php' ) ) );
 			exit;
 		}
 	}
@@ -82,11 +110,13 @@ class FMR_Admin_Service_Controller {
 		$msgs = array(
 			'created' => __( 'Item successfully created.', 'fmr-booking' ),
 			'updated' => __( 'Item successfully updated.', 'fmr-booking' ),
-			'deleted' => __( 'Item successfully deleted.', 'fmr-booking' )
+			'deleted' => __( 'Item successfully deleted.', 'fmr-booking' ),
+			'error'   => __( 'Database error: Action failed.', 'fmr-booking' ),
 		);
 
 		if ( isset( $msgs[ $_GET['msg'] ] ) ) {
-			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $msgs[ $_GET['msg'] ] ) . '</p></div>';
+			$class = ( $_GET['msg'] === 'error' ) ? 'notice-error' : 'notice-success';
+			echo '<div class="notice ' . esc_attr( $class ) . ' is-dismissible"><p>' . esc_html( $msgs[ $_GET['msg'] ] ) . '</p></div>';
 		}
 	}
 
@@ -125,10 +155,7 @@ class FMR_Admin_Service_Controller {
 				echo '<td><strong><a href="' . esc_url( $edit_url ) . '">' . esc_html( $service->title ) . '</a></strong>';
 				echo '<div class="row-actions"><span class="edit"><a href="' . esc_url( $edit_url ) . '">' . esc_html__( 'Edit', 'fmr-booking' ) . '</a> | </span><span class="trash"><a href="' . esc_url( $delete_url ) . '" class="submitdelete" onclick="return confirm(\'Are you sure?\');">' . esc_html__( 'Delete', 'fmr-booking' ) . '</a></span></div></td>';
 				echo '<td>' . esc_html( $service->duration ) . ' mins</td>';
-				
-				// 🚨 FIX: Explicitly cast $service->price to a float to satisfy PHP 8 strict typing
-				echo '<td>$' . esc_html( number_format( (float) $service->price, 2 ) ) . '</td>';
-				
+				echo '<td>$' . esc_html( number_format( $service->price, 2 ) ) . '</td>';
 				echo '<td>' . ( $service->is_active ? '<span style="color:green;">Active</span>' : '<span style="color:red;">Inactive</span>' ) . '</td>';
 				echo '</tr>';
 			}
@@ -143,7 +170,6 @@ class FMR_Admin_Service_Controller {
 		global $wpdb;
 		$service_id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
 		
-		// Defaults
 		$service = (object) array(
 			'title' => '', 'description' => '', 'duration' => 30, 
 			'buffer_before' => 0, 'buffer_after' => 0, 'price' => '0.00', 'is_active' => 1
