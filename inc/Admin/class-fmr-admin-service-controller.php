@@ -16,11 +16,15 @@ class FMR_Admin_Service_Controller {
 
 	private $service_repo;
 	private $resource_repo;
+	private $rule_repo;
 	private $client_id;
 
-	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo ) {
+	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo, FMR_Rule_Repository $rule_repo = null ) {
 		$this->service_repo  = $service_repo;
 		$this->resource_repo = $resource_repo;
+		
+		// Safely instantiate the Rule Repo if not injected by the container yet
+		$this->rule_repo = $rule_repo ? $rule_repo : new FMR_Rule_Repository();
 
 		$this->ensure_client_exists();
 
@@ -69,13 +73,30 @@ class FMR_Admin_Service_Controller {
 				'is_active'     => isset( $_POST['is_active'] ) ? 1 : 0,
 			);
 
-			if ( ! empty( $_POST['service_id'] ) ) {
-				$result = $wpdb->update( $table, $data, array( 'id' => absint( $_POST['service_id'] ) ), array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ), array( '%d' ) );
+			$service_id = ! empty( $_POST['service_id'] ) ? absint( $_POST['service_id'] ) : 0;
+
+			if ( $service_id ) {
+				$result = $wpdb->update( $table, $data, array( 'id' => $service_id ), array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ), array( '%d' ) );
 				$message = ( $result !== false ) ? 'updated' : 'error';
 			} else {
 				$result = $wpdb->insert( $table, $data, array( '%d', '%s', '%s', '%d', '%d', '%d', '%f', '%d' ) );
+				$service_id = $wpdb->insert_id;
 				$message = ( $result !== false ) ? 'created' : 'error';
 			}
+
+			// 🚨 FIX: Process Resource Link Rules
+			if ( $service_id && $message !== 'error' ) {
+				// Wipe existing rules for this service for a clean slate
+				$this->rule_repo->delete_by_service( $service_id );
+				
+				// Insert newly checked resources
+				if ( ! empty( $_POST['resource_ids'] ) && is_array( $_POST['resource_ids'] ) ) {
+					foreach ( $_POST['resource_ids'] as $res_id ) {
+						$this->rule_repo->add_rule( $service_id, absint( $res_id ), 'required' );
+					}
+				}
+			}
+
 			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'msg' => $message ), admin_url( 'admin.php' ) ) );
 			exit;
 		}
@@ -190,10 +211,19 @@ class FMR_Admin_Service_Controller {
 		global $wpdb;
 		$service_id = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
 		$service = (object) array( 'title' => '', 'description' => '', 'duration' => 30, 'buffer_before' => 0, 'buffer_after' => 0, 'price' => '0.00', 'is_active' => 1 );
+		
+		$selected_resources = array();
 
 		if ( $service_id ) {
 			$service = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}fmr_services WHERE id = %d", $service_id ) );
+			// Fetch currently required resources
+			$selected_resources = $this->rule_repo->get_required_resources( $service_id );
+			if ( ! is_array( $selected_resources ) ) $selected_resources = array();
 		}
+
+		// Fetch all available active resources
+		$all_resources = $wpdb->get_results( $wpdb->prepare( "SELECT id, name, type FROM {$wpdb->prefix}fmr_resources WHERE client_id = %d AND is_active = 1", $this->client_id ) );
+
 		?>
 		<form method="post" action="">
 			<input type="hidden" name="fmr_action" value="save_service">
@@ -216,6 +246,26 @@ class FMR_Admin_Service_Controller {
 					<th scope="row"><label for="price"><?php esc_html_e( 'Price', 'fmr-booking' ); ?></label></th>
 					<td>$<input name="price" type="number" step="0.01" id="price" value="<?php echo esc_attr( $service->price ); ?>" class="small-text"></td>
 				</tr>
+				
+				<tr>
+					<th scope="row"><label><?php esc_html_e( 'Required Resources', 'fmr-booking' ); ?></label></th>
+					<td>
+						<?php if ( $all_resources ) : ?>
+							<fieldset>
+								<?php foreach ( $all_resources as $res ) : ?>
+									<label style="display:block; margin-bottom: 5px;">
+										<input type="checkbox" name="resource_ids[]" value="<?php echo esc_attr( $res->id ); ?>" <?php checked( in_array( $res->id, $selected_resources ) ); ?>>
+										<?php echo esc_html( $res->name . ' (' . ucfirst( $res->type ) . ')' ); ?>
+									</label>
+								<?php endforeach; ?>
+							</fieldset>
+							<p class="description"><?php esc_html_e( 'Select the staff, rooms, or equipment required to perform this service.', 'fmr-booking' ); ?></p>
+						<?php else : ?>
+							<p style="color:red;"><?php esc_html_e( 'No active resources found. Create some in the Resources tab first!', 'fmr-booking' ); ?></p>
+						<?php endif; ?>
+					</td>
+				</tr>
+
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Status', 'fmr-booking' ); ?></th>
 					<td>
@@ -313,7 +363,7 @@ class FMR_Admin_Service_Controller {
 				</tr>
 				<tr>
 					<th scope="row"><label for="description"><?php esc_html_e( 'Description', 'fmr-booking' ); ?></label></th>
-					<td><textarea name="description" id="description" rows="4" class="regular-text"><?php echo esc_textarea( $service->description ?? '' ); ?></textarea></td>
+					<td><textarea name="description" id="description" rows="4" class="regular-text"><?php echo esc_textarea( $resource->description ?? '' ); ?></textarea></td>
 				</tr>
 				<tr>
 					<th scope="row"><?php esc_html_e( 'Status', 'fmr-booking' ); ?></th>
