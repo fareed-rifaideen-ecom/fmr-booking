@@ -19,7 +19,11 @@ class FMR_Admin_Service_Controller {
 	private $rule_repo;
 	private $client_id;
 
-	public function __construct( FMR_Service_Repository $service_repo = null, FMR_Resource_Repository $resource_repo = null, FMR_Rule_Repository $rule_repo = null ) {
+	public function __construct( FMR_Service_Repository $service_repo, FMR_Resource_Repository $resource_repo, FMR_Rule_Repository $rule_repo = null ) {
+		$this->service_repo  = $service_repo;
+		$this->resource_repo = $resource_repo;
+		$this->rule_repo     = $rule_repo ? $rule_repo : new FMR_Rule_Repository();
+
 		$this->ensure_client_exists();
 		add_action( 'admin_init', array( $this, 'process_actions' ) );
 		add_action( 'admin_notices', array( $this, 'display_notices' ) );
@@ -50,6 +54,40 @@ class FMR_Admin_Service_Controller {
 		if ( ! current_user_can( 'manage_options' ) ) return;
 		global $wpdb;
 
+		// 🚨 NEW: Self-Healing Database Fixer
+		if ( isset( $_GET['action'] ) && $_GET['action'] === 'force_fix_db' ) {
+			check_admin_referer( 'fmr_force_fix' );
+			
+			$rules_table     = $wpdb->prefix . 'fmr_service_resource_rules';
+			$services_table  = $wpdb->prefix . 'fmr_services';
+			$resources_table = $wpdb->prefix . 'fmr_resources';
+			$charset_collate = $wpdb->get_charset_collate();
+
+			$sql = "CREATE TABLE {$rules_table} (
+				id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+				service_id bigint(20) UNSIGNED NOT NULL,
+				resource_id bigint(20) UNSIGNED NOT NULL,
+				rule_type varchar(50) DEFAULT 'required',
+				created_at datetime DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY  (id),
+				KEY service_id (service_id),
+				KEY resource_id (resource_id),
+				CONSTRAINT fk_rule_service FOREIGN KEY (service_id) REFERENCES {$services_table}(id) ON DELETE CASCADE,
+				CONSTRAINT fk_rule_resource FOREIGN KEY (resource_id) REFERENCES {$resources_table}(id) ON DELETE CASCADE
+			) {$charset_collate};";
+
+			$wpdb->show_errors();
+			$result = $wpdb->query( $sql );
+
+			if ( $result === false ) {
+				wp_die( '<h2>Database Fix Failed</h2><p>MySQL rejected the table creation. This usually means a server configuration issue. Here is the exact error from your database:</p><div style="background:#f1f1f1;padding:15px;border:1px solid #ccc;margin-bottom:20px;"><strong>' . esc_html( $wpdb->last_error ) . '</strong></div><a href="javascript:history.back()" class="button">&laquo; Go Back</a>' );
+			}
+
+			$redirect_id = isset($_GET['service_id']) ? absint($_GET['service_id']) : 0;
+			wp_safe_redirect( add_query_arg( array( 'page' => 'fmr-booking-services', 'action' => 'edit', 'id' => $redirect_id, 'msg' => 'db_fixed' ), admin_url( 'admin.php' ) ) );
+			exit;
+		}
+
 		// --- PROCESS SERVICES ---
 		if ( isset( $_POST['fmr_action'] ) && $_POST['fmr_action'] === 'save_service' ) {
 			check_admin_referer( 'fmr_save_service', 'fmr_service_nonce' );
@@ -77,25 +115,13 @@ class FMR_Admin_Service_Controller {
 				$message = ( $result !== false ) ? 'created' : 'error';
 			}
 
-			// 🚨 DIRECT DB SAVE: Bypassing the repository completely to force the save
+			// PROCESS RESOURCE LINK RULES
 			if ( $service_id && $message !== 'error' ) {
-				$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
+				$this->rule_repo->delete_by_service( $service_id );
 				
-				// 1. Wipe old rules
-				$wpdb->delete( $rules_table, array( 'service_id' => $service_id ), array( '%d' ) );
-				
-				// 2. Insert new checks
 				if ( ! empty( $_POST['resource_ids'] ) && is_array( $_POST['resource_ids'] ) ) {
 					foreach ( $_POST['resource_ids'] as $res_id ) {
-						$wpdb->insert(
-							$rules_table,
-							array(
-								'service_id'  => absint( $service_id ),
-								'resource_id' => absint( $res_id ),
-								'rule_type'   => 'required'
-							),
-							array( '%d', '%d', '%s' )
-						);
+						$this->rule_repo->add_rule( $service_id, absint( $res_id ), 'required' );
 					}
 				}
 			}
@@ -116,6 +142,7 @@ class FMR_Admin_Service_Controller {
 		if ( isset( $_POST['fmr_action'] ) && $_POST['fmr_action'] === 'save_resource' ) {
 			check_admin_referer( 'fmr_save_resource', 'fmr_resource_nonce' );
 			$table = $wpdb->prefix . 'fmr_resources';
+			
 			$valid_types = array( 'staff', 'room', 'equipment', 'virtual' );
 			$type = in_array( $_POST['type'], $valid_types, true ) ? $_POST['type'] : 'staff';
 
@@ -153,10 +180,11 @@ class FMR_Admin_Service_Controller {
 		if ( ! isset( $_GET['msg'] ) ) return;
 
 		$msgs = array(
-			'created' => __( 'Item successfully created.', 'fmr-booking' ),
-			'updated' => __( 'Item successfully updated.', 'fmr-booking' ),
-			'deleted' => __( 'Item successfully deleted.', 'fmr-booking' ),
-			'error'   => __( 'Database error: Action failed.', 'fmr-booking' ),
+			'created'  => __( 'Item successfully created.', 'fmr-booking' ),
+			'updated'  => __( 'Item successfully updated.', 'fmr-booking' ),
+			'deleted'  => __( 'Item successfully deleted.', 'fmr-booking' ),
+			'db_fixed' => __( 'Database successfully patched! The missing table has been created.', 'fmr-booking' ),
+			'error'    => __( 'Database error: Action failed.', 'fmr-booking' ),
 		);
 
 		if ( isset( $msgs[ $_GET['msg'] ] ) ) {
@@ -213,15 +241,13 @@ class FMR_Admin_Service_Controller {
 		$selected_resources = array();
 		$db_diagnostic = '';
 
-		// 🚨 DIRECT DB FETCH: Bypassing the repository
 		if ( $service_id ) {
 			$service = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}fmr_services WHERE id = %d", $service_id ) );
 			
 			$rules_table = $wpdb->prefix . 'fmr_service_resource_rules';
 			
-			// 🚨 DIAGNOSTIC: Check if table even exists!
 			if ( $wpdb->get_var( "SHOW TABLES LIKE '$rules_table'" ) != $rules_table ) {
-				$db_diagnostic = "CRITICAL ERROR: The table '$rules_table' is MISSING from your database! WordPress failed to create it during activation.";
+				$db_diagnostic = "CRITICAL ERROR: The table '$rules_table' is MISSING from your database!";
 			} else {
 				$fetched = $wpdb->get_col( $wpdb->prepare( "SELECT resource_id FROM {$rules_table} WHERE service_id = %d", $service_id ) );
 				if ( is_array( $fetched ) ) {
@@ -259,10 +285,13 @@ class FMR_Admin_Service_Controller {
 				<tr>
 					<th scope="row"><label><?php esc_html_e( 'Required Resources', 'fmr-booking' ); ?></label></th>
 					<td>
-						<?php if ( $db_diagnostic ) : ?>
-							<div style="background:#ffebee; border-left:4px solid red; padding:10px; margin-bottom:15px;">
-								<strong><?php echo esc_html( $db_diagnostic ); ?></strong><br>
-								To fix this, deactivate and reactivate the plugin. If it still persists, we will run the SQL manually.
+						<?php if ( $db_diagnostic ) : 
+							$fix_url = wp_nonce_url( add_query_arg( array( 'action' => 'force_fix_db', 'service_id' => $service_id ) ), 'fmr_force_fix' );
+						?>
+							<div style="background:#ffebee; border-left:4px solid #dc3232; padding:15px; margin-bottom:20px; border-radius:3px;">
+								<p style="margin-top:0; color:#b32d2d; font-size:14px;"><strong><?php echo esc_html( $db_diagnostic ); ?></strong></p>
+								<p style="color:#666;">WordPress's auto-installer failed. We have built a self-healing tool to forcefully create it.</p>
+								<a href="<?php echo esc_url( $fix_url ); ?>" class="button button-primary" style="background: #dc3232; border-color: #b32d2d; color: white; text-shadow: none;">Force Fix Database Now</a>
 							</div>
 						<?php endif; ?>
 
