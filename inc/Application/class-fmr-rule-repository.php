@@ -12,13 +12,6 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-/**
- * Repository for handling service-resource dependency rules.
- *
- * @package    FMR_Booking
- * @subpackage FMR_Booking/inc/Application
- * @author     FMR
- */
 class FMR_Rule_Repository {
 
 	private $table_name;
@@ -44,16 +37,17 @@ class FMR_Rule_Repository {
 
 	public function get_required_resources( $service_id ) {
 		global $wpdb;
-		// 🚨 Performance: Explicitly selecting only what is needed.
-		return $wpdb->get_col( $wpdb->prepare(
+		$results = $wpdb->get_col( $wpdb->prepare(
 			"SELECT resource_id FROM {$this->table_name} WHERE service_id = %d AND rule_type = 'required'",
 			$service_id
 		) );
+		
+		// Ensure it always returns an array, even if empty
+		return is_array( $results ) ? $results : array();
 	}
 
 	public function delete_by_service( $service_id ) {
 		global $wpdb;
-		// 🚨 FIX: Changed undefined variable $id to the correct parameter $service_id
 		return $wpdb->delete( $this->table_name, array( 'service_id' => $service_id ), array( '%d' ) );
 	}
 }
