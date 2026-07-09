@@ -25,7 +25,7 @@ class FMR_Availability_Service {
 		FMR_Service_Repository $service_repo,
 		FMR_Resource_Repository $resource_repo,
 		FMR_Rule_Repository $rule_repo,
-		FMR_Availability_Rule_Repository $avail_rule_repo // 🚨 NEW: Injected Rule Engine
+		FMR_Availability_Rule_Repository $avail_rule_repo
 	) {
 		$this->availability_repo = $availability_repo;
 		$this->service_repo      = $service_repo;
@@ -47,7 +47,7 @@ class FMR_Availability_Service {
 		// Fast-fail: If there are no rules for this day, they are closed.
 		if ( empty( $schedules ) ) return array(); 
 
-		// Calculate bounds based on the schedules (Simplified for MVP: takes earliest start and latest end)
+		// Calculate bounds based on the schedules
 		$open_time  = '23:59:59';
 		$close_time = '00:00:00';
 		foreach ( $schedules as $schedule ) {
@@ -58,24 +58,28 @@ class FMR_Availability_Service {
 		// 2. Fetch full-day or partial Blockouts (Holidays / Sick Leave)
 		$blockouts = $this->avail_rule_repo->get_blockouts_for_date( $client_id, $date );
 
-		// 3. Check Resources
+		// 3. Check Resources (🚨 UPDATED: Now gracefully handles services without specific resources)
 		$required_resource_ids = $this->rule_repo->get_required_resources( $service_id );
-		if ( empty( $required_resource_ids ) ) return array();
-
-		$daily_reservations = $this->availability_repo->get_daily_reservations( $required_resource_ids, $date );
-		$daily_locks        = $this->availability_repo->get_daily_locks( $service_id, $date );
 		
+		$daily_reservations  = array();
 		$resource_capacities = array();
-		foreach ( $required_resource_ids as $res_id ) {
-			$resource = $this->resource_repo->get( $res_id );
-			if ( ! $resource || ! $resource->is_active ) return array(); 
-			$resource_capacities[$res_id] = (int) $resource->capacity;
+		
+		if ( ! empty( $required_resource_ids ) ) {
+			$daily_reservations = $this->availability_repo->get_daily_reservations( $required_resource_ids, $date );
+			foreach ( $required_resource_ids as $res_id ) {
+				$resource = $this->resource_repo->get( $res_id );
+				if ( ! $resource || ! $resource->is_active ) return array(); // Fast fail if a required resource is disabled
+				$resource_capacities[$res_id] = (int) $resource->capacity;
+			}
 		}
 
-		$slots = array();
+		$daily_locks  = $this->availability_repo->get_daily_locks( $service_id, $date );
+		$slots        = array();
 		$current_time = strtotime( "$date $open_time" );
 		$end_time     = strtotime( "$date $close_time" );
-		$interval     = isset( $service->slot_interval ) ? (int) $service->slot_interval : 30;
+		
+		// Set interval to service duration
+		$interval = (int) $service->duration; 
 
 		// 4. Loop Time Blocks (In-Memory Processing)
 		while ( $current_time + ( $service->duration * 60 ) <= $end_time ) {
@@ -111,14 +115,16 @@ class FMR_Availability_Service {
 		}
 
 		// C. Check Resource Capacity
-		$resource_usage = array();
-		foreach ( $daily_reservations as $reservation ) {
-			if ( $start_time < $reservation->end_time && $end_time > $reservation->start_time ) {
-				$res_id = $reservation->resource_id;
-				$resource_usage[$res_id] = isset($resource_usage[$res_id]) ? $resource_usage[$res_id] + 1 : 1;
-				
-				if ( $resource_usage[$res_id] >= $resource_capacities[$res_id] ) {
-					return false;
+		if ( ! empty( $resource_capacities ) ) {
+			$resource_usage = array();
+			foreach ( $daily_reservations as $reservation ) {
+				if ( $start_time < $reservation->end_time && $end_time > $reservation->start_time ) {
+					$res_id = $reservation->resource_id;
+					$resource_usage[$res_id] = isset($resource_usage[$res_id]) ? $resource_usage[$res_id] + 1 : 1;
+					
+					if ( $resource_usage[$res_id] >= $resource_capacities[$res_id] ) {
+						return false;
+					}
 				}
 			}
 		}
