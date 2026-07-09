@@ -1,152 +1,62 @@
-/**
- * Frontend JavaScript for FMR Booking Form.
- */
-(function($) {
-    'use strict';
+document.addEventListener('DOMContentLoaded', () => {
+    const dateInput = document.querySelector('input[type="date"]');
+    
+    if (!dateInput) return;
 
-    $(document).ready(function() {
-        // Ensure the config object exists (fail gracefully if shortcode didn't load properly)
-        if (typeof fmrBookingConfig === 'undefined') {
-            return;
+    dateInput.addEventListener('change', async (e) => {
+        const selectedDate = e.target.value;
+        if (!selectedDate) return;
+
+        // Find or create the message container below the input
+        let messageArea = dateInput.parentElement.nextElementSibling;
+        if (!messageArea || messageArea.tagName.toLowerCase() === 'button') {
+            messageArea = document.createElement('div');
+            messageArea.style.marginTop = '15px';
+            dateInput.parentElement.after(messageArea);
         }
 
-        const $container = $('#fmr-booking-container');
-        if (!$container.length) return;
+        messageArea.innerHTML = `<p style="color:#666;">${fmrBookingConfig.i18n.loading}</p>`;
 
-        let currentStep = 1;
-        let bookingData = {
-            client_id: fmrBookingConfig.clientId,
-            service_id: fmrBookingConfig.serviceId,
-            date: null,
-            start_time: null,
-            booking_mode: 'in_person',
-            intake_answers: {}
-        };
-
-        // --- Navigation ---
-        $('.fmr-next-step').on('click', function() {
-            // Basic validation before moving to next step
-            if (currentStep === 1 && !bookingData.start_time) {
-                alert('Please select a date and time slot first.');
-                return;
-            }
-            goToStep(currentStep + 1);
-        });
-
-        $('.fmr-prev-step').on('click', function() {
-            goToStep(currentStep - 1);
-        });
-
-        function goToStep(step) {
-            $('.fmr-form-step').removeClass('active').hide();
-            $(`.fmr-form-step[data-step="${step}"]`).addClass('active').fadeIn();
+        try {
+            const url = `${fmrBookingConfig.restUrl}/slots?service_id=${fmrBookingConfig.serviceId}&date=${selectedDate}`;
             
-            $('.fmr-step').removeClass('active');
-            $(`.fmr-step[data-step="${step}"]`).addClass('active');
-            
-            currentStep = step;
-        }
-
-        // Initialize display
-        goToStep(1);
-
-        // --- Date Selection & Slot Fetching ---
-        $('#fmr-booking-date').on('change', function() {
-            const selectedDate = $(this).val();
-            if (!selectedDate) return;
-
-            bookingData.date = selectedDate;
-            bookingData.start_time = null; // Reset slot on date change
-            
-            fetchAvailableSlots(selectedDate);
-        });
-
-        function fetchAvailableSlots(date) {
-            const $slotsContainer = $('#fmr-slots-container');
-            $slotsContainer.html(`<p>${fmrBookingConfig.i18n.loading}</p>`);
-
-            $.ajax({
-                // Dynamically build the URL using the localized object
-                url: `${fmrBookingConfig.restUrl}/services/${bookingData.service_id}/slots`,
-                method: 'GET',
-                data: { date: date },
-                success: function(response) {
-                    renderSlots(response.data);
-                },
-                error: function() {
-                    $slotsContainer.html(`<p style="color:red;">${fmrBookingConfig.i18n.error}</p>`);
-                }
+            const response = await fetch(url, {
+                headers: { 'X-WP-Nonce': fmrBookingConfig.nonce }
             });
-        }
 
-        function renderSlots(slots) {
-            const $slotsContainer = $('#fmr-slots-container');
-            $slotsContainer.empty();
+            // Handle potential 404 HTML responses if Permalinks aren't flushed
+            const textResponse = await response.text();
+            let data;
+            try {
+                data = JSON.parse(textResponse);
+            } catch (parseError) {
+                throw new Error("REST API is unreachable (404). Please go to Settings -> Permalinks in WordPress and click 'Save Changes' to flush routes.");
+            }
 
-            if (!slots || slots.length === 0) {
-                $slotsContainer.html('<p>No available slots for this date.</p>');
+            // 🚨 THE FIX: Throw the EXACT error message returned by our PHP backend
+            if (!response.ok) {
+                throw new Error(data.message || fmrBookingConfig.i18n.error);
+            }
+
+            // Handle empty slots gracefully
+            if (data.length === 0) {
+                messageArea.innerHTML = '<p>No available slots for this date.</p>';
                 return;
             }
 
-            const $grid = $('<div class="fmr-slots-grid"></div>');
-            
-            slots.forEach(slot => {
-                // Format the time for display (e.g., "09:00 AM")
-                const timeString = new Date(slot.start.replace(/-/g, '/')).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                
-                const $btn = $('<button type="button" class="fmr-slot-btn"></button>')
-                    .text(timeString)
-                    .data('time', slot.start)
-                    .on('click', function() {
-                        $('.fmr-slot-btn').removeClass('selected');
-                        $(this).addClass('selected');
-                        bookingData.start_time = $(this).data('time');
-                    });
-                
-                $grid.append($btn);
+            // Render the slots dynamically
+            let slotsHtml = '<div style="display:flex; flex-wrap:wrap; gap:10px;">';
+            data.forEach(slot => {
+                const timeString = new Date(slot.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                slotsHtml += `<button type="button" style="padding:10px 15px; border:1px solid #0073aa; background:transparent; color:#0073aa; border-radius:4px; cursor:pointer;" class="fmr-slot-btn" data-start="${slot.start}" data-end="${slot.end}">${timeString}</button>`;
             });
+            slotsHtml += '</div>';
 
-            $slotsContainer.append($grid);
+            messageArea.innerHTML = slotsHtml;
+
+        } catch (error) {
+            // 🚨 VISUALIZE THE REAL ERROR: Print the exact issue to the screen
+            messageArea.innerHTML = `<p style="color:#d63638; font-weight:bold;">API Error: ${error.message}</p>`;
         }
-
-        // --- Form Submission ---
-        $('#fmr-booking-form').on('submit', function(e) {
-            e.preventDefault();
-            
-            const formData = $(this).serializeArray();
-            formData.forEach(item => {
-                // Map form fields to our bookingData object
-                if (['customer_name', 'customer_email', 'customer_phone', 'notes'].includes(item.name)) {
-                    bookingData[item.name] = item.value;
-                } else if (item.name === 'booking_mode') {
-                    bookingData.booking_mode = item.value;
-                }
-            });
-
-            const $submitBtn = $(this).find('button[type="submit"]');
-            $submitBtn.prop('disabled', true).text('Processing...');
-
-            $.ajax({
-                // Hit the secured, standardized appointments endpoint
-                url: `${fmrBookingConfig.restUrl}/appointments`,
-                method: 'POST',
-                beforeSend: function(xhr) {
-                    // Inject the cryptographic nonce to pass WP security
-                    xhr.setRequestHeader('X-WP-Nonce', fmrBookingConfig.nonce);
-                },
-                data: JSON.stringify(bookingData),
-                contentType: 'application/json',
-                success: function(response) {
-                    // response.data.id now contains the secure UUID
-                    goToStep(4); // Show success screen
-                },
-                error: function(xhr) {
-                    $submitBtn.prop('disabled', false).text('Confirm Booking');
-                    const errorMsg = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error.message : fmrBookingConfig.i18n.error;
-                    alert('Booking failed: ' + errorMsg);
-                }
-            });
-        });
     });
-
-})(jQuery);
+});
