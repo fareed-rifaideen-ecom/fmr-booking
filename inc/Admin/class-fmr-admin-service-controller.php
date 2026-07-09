@@ -84,7 +84,7 @@ class FMR_Admin_Service_Controller {
 				$message = ( $result !== false ) ? 'created' : 'error';
 			}
 
-			// 🚨 FIX: Process Resource Link Rules
+			// 🚨 PROCESS RESOURCE LINK RULES
 			if ( $service_id && $message !== 'error' ) {
 				// Wipe existing rules for this service for a clean slate
 				$this->rule_repo->delete_by_service( $service_id );
